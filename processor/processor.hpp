@@ -166,6 +166,9 @@ class processor_t {
 
 	uint32_t WAIT_CYCLE;
 
+	uint64_t totalWrites;
+	uint64_t totalReads;
+
     public:
 		
 		// ====================================================================

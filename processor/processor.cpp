@@ -429,7 +429,10 @@ void processor_t::fetch(){
 	// uint32_t position;
 	// Trace ->fetchBuffer
 	for (uint32_t i = 0; i < FETCH_WIDTH; i++)
-	{
+	{	
+		if (operation.is_write) totalWrites++;
+		if (operation.is_read) totalReads++;
+		if (operation.is_read2) totalReads++;
 		operation.package_clean();
 		bool updated = false;
 		//=============================
@@ -1754,6 +1757,8 @@ void processor_t::statistics(){
 		fprintf(output, "MPKI: %lf\n", (float)orcs_engine.cacheManager->data_cache[2][cache_indexes[2]].get_cache_miss()/((float)this->fetchCounter/1000));
 		fprintf(output, "Average_wait_cycles_wait_mem_req: %lf\n", (float)this->mem_req_wait_cycles/this->get_stat_inst_load_completed());
 		fprintf(output, "Core_Request_RAM_AVG_Cycle: %lf\n", (float)this->core_ram_request_wait_cycles/this->get_core_ram_requests());
+		fprintf(output, "Total Reads: %lu\n", totalReads);
+		fprintf(output, "Total Writes: %lu\n", totalWrites);
 		utils_t::largestSeparator(output);
 		delete[] cache_indexes;
 	}

@@ -25,6 +25,8 @@ class cache_manager_t {
         uint32_t SIZE_OF_L2_CACHES_ARRAY;     // Numero de caches L2
         uint32_t SIZE_OF_LLC_CACHES_ARRAY;
 
+        std::map<uint64_t, uint64_t> instAddr;
+        
         void check_cache(uint32_t cache_size, uint32_t cache_level);
         void installCacheLines(uint64_t instructionAddress, int32_t *cache_indexes, uint32_t latency_request, cacheId_t cache_type);
         uint32_t searchAddress(uint64_t instructionAddress, cache_t *cache, uint32_t *latency_request, uint32_t *ttc);
@@ -37,7 +39,6 @@ class cache_manager_t {
         // instruction and data caches dynamically allocated
         cache_t **data_cache;
         cache_t **instruction_cache;
-
 
         // Constructor
         cache_manager_t();
