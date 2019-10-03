@@ -1,9 +1,9 @@
 class uop_package_t{
-    
+
     public:
     uop_package_t();
     ~uop_package_t();
-    
+
     /// TRACE Variables
     char opcode_assembly[MAX_ASSEMBLY_SIZE];
     instruction_operation_t opcode_operation;

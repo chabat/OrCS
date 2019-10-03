@@ -63,6 +63,7 @@ SRC_CORE =  simulator.cpp orcs_engine.cpp\
 			$(SRC_OTHER)\
 			$(SRC_BRANCH_PREDICTOR)\
 			$(SRC_CACHE)\
+			$(SRC_UOP_CACHE)\
 			$(SRC_PREFETCHER)\
 			$(SRC_CONFIG)\
 			$(SRC_MEMORY)\

@@ -501,7 +501,7 @@ void processor_t::fetch(){
 			this->traceIsOver = true;
 			break;
 		}
-		if (FETCH_DEBUG){			
+		if (FETCH_DEBUG){
 			ORCS_PRINTF("Opcode Fetched %s\n", operation.content_to_string2().c_str())
 		}
 		//============================
@@ -545,7 +545,7 @@ void processor_t::fetch(){
 		if (!updated)
 		{
 			memory_order_buffer_line_t* mob_line = new memory_order_buffer_line_t;
-			
+
 			mob_line->opcode_ptr = fetchBuffer.back();
 			mob_line->opcode_address = fetchBuffer.back()->opcode_address;
 			mob_line->memory_address = fetchBuffer.back()->opcode_address;
@@ -617,8 +617,35 @@ void processor_t::decode(){
 			break;
 		}
 		ERROR_ASSERT_PRINTF(this->decodeCounter == this->fetchBuffer.front()->opcode_number, "Trying decode out-of-order");
-		this->decodeCounter++;
 
+
+		if(orcs_engine.uopCache->instToIgnore == 0){
+			//Try to hit uOpCache
+			uint64_t toHit = fetchBuffer.front()->opcode_address;
+			uint32_t setToHit = toHit & (orcs_engine.uopCache->N_SETS-1);
+			bool hit = false;
+			//printf("Vo hita no %d, %lu\n", setToHit, toHit);
+			for(i = 0; i < orcs_engine.uopCache->associativity; i++){
+				if(toHit == orcs_engine.uopCache->sets[setToHit].lines[i].tag){
+					hit = true;
+					break;
+				}
+			}
+			if(hit){
+				uint32_t instSaved = orcs_engine.uopCache->sets[setToHit].lines[i].instCounter;
+				uint32_t uopSaved = orcs_engine.uopCache->sets[setToHit].lines[i].uopCounter;
+				//printf("HITOU SUCESSO %lu, evitou decodar %d instruções, %d uops\n", toHit, instSaved, uopSaved);
+				orcs_engine.uopCache->instToIgnore = instSaved;
+				orcs_engine.uopCache->decodeTimeSaved += DECODE_LATENCY * uopSaved;
+				orcs_engine.uopCache->hitCounter++;
+			}
+			else{
+				orcs_engine.uopCache->missCounter++;
+				//printf("MISSOU %lu\n", toHit);
+			}
+		}
+
+		this->decodeCounter++;
 		// =====================
 		//Decode Read 1
 		// =====================
@@ -656,6 +683,9 @@ void processor_t::decode(){
 			new_uop.updatePackageReady(DECODE_LATENCY);
 			// printf("\n UOP Created %s \n",new_uop.content_to_string().c_str());
 			statusInsert = this->decodeBuffer.push_back(new_uop);
+			//Try to insert the uop in the uopCache fillbuffer
+			if(orcs_engine.uopCache->instToIgnore == 0)
+				orcs_engine.uopCache->fillBufferInsert(new_uop);
 			if (DECODE_DEBUG){
 				ORCS_PRINTF("uop created %s\n", this->decodeBuffer.back()->content_to_string2().c_str())
 			}
@@ -697,7 +727,10 @@ void processor_t::decode(){
 			}
 			new_uop.updatePackageReady(DECODE_LATENCY);
 			// printf("\n UOP Created %s \n",new_uop.content_to_string().c_str());
-			statusInsert = this->decodeBuffer.push_back(new_uop);
+			if(orcs_engine.uopCache->instToIgnore == 0)
+				statusInsert = this->decodeBuffer.push_back(new_uop);
+			//Try to insert the uop in the uopCache fillbuffer
+			orcs_engine.uopCache->fillBufferInsert(new_uop);
 			if (DECODE_DEBUG){
 				ORCS_PRINTF("uop created %s\n", this->decodeBuffer.back()->content_to_string2().c_str())
 			}
@@ -755,6 +788,9 @@ void processor_t::decode(){
 			}
 			new_uop.updatePackageReady(DECODE_LATENCY);
 			statusInsert = this->decodeBuffer.push_back(new_uop);
+			//Try to insert the uop in the uopCache fillbuffer
+			if(orcs_engine.uopCache->instToIgnore == 0)
+				orcs_engine.uopCache->fillBufferInsert(new_uop);
 			if (DECODE_DEBUG){
 				ORCS_PRINTF("uop created %s\n", this->decodeBuffer.back()->content_to_string2().c_str())
 			}
@@ -804,7 +840,10 @@ void processor_t::decode(){
 				ERROR_ASSERT_PRINTF(inserted_258, "Todos Max regs usados. %u \n", MAX_REGISTERS)
 			}
 			new_uop.updatePackageReady(DECODE_LATENCY);
-			statusInsert = this->decodeBuffer.push_back(new_uop);
+			if(orcs_engine.uopCache->instToIgnore == 0)
+				statusInsert = this->decodeBuffer.push_back(new_uop);
+			//Try to insert the uop in the uopCache fillbuffer
+			orcs_engine.uopCache->fillBufferInsert(new_uop);
 			if (DECODE_DEBUG){
 				ORCS_PRINTF("uop created %s\n", this->decodeBuffer.back()->content_to_string2().c_str())
 			}
@@ -847,12 +886,16 @@ void processor_t::decode(){
 			new_uop.updatePackageReady(DECODE_LATENCY);
 			// printf("\n UOP Created %s \n",new_uop.content_to_string().c_str());
 			statusInsert = this->decodeBuffer.push_back(new_uop);
+			//Try to insert the uop in the uopCache fillbuffer
+			if(orcs_engine.uopCache->instToIgnore == 0)
+				orcs_engine.uopCache->fillBufferInsert(new_uop);
 			if (DECODE_DEBUG){
 				ORCS_PRINTF("uop created %s\n", this->decodeBuffer.back()->content_to_string2().c_str())
 			}
 			ERROR_ASSERT_PRINTF(statusInsert != POSITION_FAIL, "Erro, Tentando decodificar mais uops que o maximo permitido")
 		}
 		this->fetchBuffer.pop_front();
+		if(orcs_engine.uopCache->instToIgnore != 0) orcs_engine.uopCache->instToIgnore--;
 	}
 }
 
@@ -1077,7 +1120,7 @@ void processor_t::dispatch(){
 					ORCS_PRINTF("=================\n")
 				}
 			}
-		
+
 			if (total_dispatched >= DISPATCH_WIDTH){
 				break;
 			}
@@ -1531,7 +1574,7 @@ uint32_t processor_t::mob_read(){
 				ORCS_PRINTF("=================================\n")
 			}
 		}
-		
+
 		if (!oldest_read_to_send->sent){
 			orcs_engine.cacheManager->searchData(this->oldest_read_to_send);
 			this->oldest_read_to_send->cycle_send_request = orcs_engine.get_global_cycle(); //Cycle which sent request to memory system

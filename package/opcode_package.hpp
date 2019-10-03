@@ -49,5 +49,5 @@ class opcode_package_t {
         void updatePackageFree(uint32_t stallTime);
         std::string content_to_string();
         std::string content_to_string2();
-       
+
 };

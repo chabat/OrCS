@@ -76,6 +76,14 @@ class cache_manager_t;
 class mshr_entry_t;
 
 //  =========================================//
+// Uop Cache Classes
+//  =========================================//
+
+class uopCache_t;
+class uopCacheSet_t;
+class uopLine_t;
+
+//  =========================================//
 // Usefull Classes
 //  =========================================//
 template<class CB_TYPE> class circular_buffer_t;
@@ -191,4 +199,8 @@ extern orcs_engine_t orcs_engine;
 #include "./main_memory/memory_channel.hpp"
 #include "./main_memory/memory_controller.hpp"
 //  =========================================//
+// // Uop Cache INCLUDES
+#include "./uop_cache/uopLine.hpp"
+#include "./uop_cache/uopCacheSet.hpp"
+#include "./uop_cache/uopCache.hpp"
 #endif  // _ORCS_ORCS_HPP_

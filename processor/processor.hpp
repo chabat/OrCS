@@ -1,7 +1,7 @@
 // ============================================================================
 // ============================================================================
 class processor_t {
-    private:    
+    private:
 	//=============
 	//Fetch Related
 	//=============
@@ -78,7 +78,7 @@ class processor_t {
 
 	uint32_t QTDE_INTEGER_FU;
 
-	//FP ULAS LATENCY 
+	//FP ULAS LATENCY
 	// FLOATING POINT DIV
 	uint32_t LATENCY_FP_DIV;
 	uint32_t WAIT_NEXT_FP_DIV;
@@ -167,7 +167,7 @@ class processor_t {
 	uint32_t WAIT_CYCLE;
 
     public:
-		
+
 		// ====================================================================
 		/// Attributes
 		// ====================================================================
@@ -190,7 +190,7 @@ class processor_t {
 		uint64_t commit_uop_counter;
 		uint32_t memory_read_executed;
 		uint32_t memory_write_executed;
-		
+
 		// ====================================================================
 		/// Methods
 		// ====================================================================
@@ -212,7 +212,7 @@ class processor_t {
 		// ====================================================================
 		// MOB READ RELATED
 		int32_t search_position_mob_read();
-		void remove_front_mob_read();	
+		void remove_front_mob_read();
 		// ====================================================================
 		// MOB WRITE RELATED
 		int32_t search_position_mob_write();
@@ -232,7 +232,7 @@ class processor_t {
 		void clean_mob_write();
 		void commit();
 		// ====================================================================
-		// Bool Functions @return 
+		// Bool Functions @return
 		bool isBusy();
 		// ====================================================================
 		// Other Methods
@@ -242,7 +242,7 @@ class processor_t {
 		// =======================
 		circular_buffer_t<uop_package_t> decodeBuffer;
 		circular_buffer_t<opcode_package_t> fetchBuffer;
-		
+
 		// =======================
 		// Register Alias Table - RAT
 		// =======================
@@ -285,9 +285,9 @@ class processor_t {
 		uint32_t counter_mshr_write;
 		int32_t request_DRAM;
 		// ======================
-		//Reservation Station 
+		//Reservation Station
 		container_ptr_reorder_buffer_line_t unified_reservation_station;
-		// ====================== 
+		// ======================
 		// ======================
 		// Funcional Unitis - FUs
 		// ======================
@@ -372,7 +372,7 @@ class processor_t {
 
 		INSTANTIATE_GET_SET_ADD(uint32_t,QTDE_INTEGER_FU)
 
-		//FP ULAS LATENCY 
+		//FP ULAS LATENCY
 		// FLOATING POINT DIV
 		INSTANTIATE_GET_SET_ADD(uint32_t,LATENCY_FP_DIV)
 		INSTANTIATE_GET_SET_ADD(uint32_t,WAIT_NEXT_FP_DIV)
@@ -444,6 +444,6 @@ class processor_t {
 
 		INSTANTIATE_GET_SET_ADD(uint32_t,INSTRUCTION_CACHES)
 		INSTANTIATE_GET_SET_ADD(uint32_t,DATA_CACHES)
-		
+
 		// ====================================================================
 };

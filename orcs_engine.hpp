@@ -33,7 +33,8 @@ class orcs_engine_t {
         cache_manager_t *cacheManager;
         //Memory Controller
         memory_controller_t *memory_controller;
-
+		//Uop Cache
+		uopCache_t *uopCache;
         // ====================================================================
         /// Statistics related
         // ====================================================================

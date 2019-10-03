@@ -28,7 +28,7 @@ static uint32_t process_argv(int argc, char **argv) {
     int opt;
     int option_index = 0;
     uint32_t traces_informados = 0;
-    
+
     while ((opt = getopt_long_only(argc, argv, "h:c:t:f:w:",
                  long_options, &option_index)) != -1) {
         switch (opt) {
@@ -78,7 +78,7 @@ static uint32_t process_argv(int argc, char **argv) {
     return NUMBER_OF_PROCESSORS;
 }
 
-std::string get_status_execution(uint32_t NUMBER_OF_PROCESSORS){   
+std::string get_status_execution(uint32_t NUMBER_OF_PROCESSORS){
     std::string final_report;
     char report[1000];
     // Data - Atual,total, active cores
@@ -109,8 +109,8 @@ std::string get_status_execution(uint32_t NUMBER_OF_PROCESSORS){
     final_report+=report;
     // IPC parcial
     snprintf(report,sizeof(report),"Global IPC(%1.6lf)\n", static_cast<double>(ActualLength) / static_cast<double>(orcs_engine.get_global_cycle()));
-    final_report+=report;    
-    //    
+    final_report+=report;
+    //
     double seconds_remaining = (100*(seconds_spent / percentage_complete)) - seconds_spent;
         snprintf(report,sizeof(report), "Global ETC(%02.0f:%02.0f:%02.0f)\n",
                                                 floor(seconds_remaining / 3600.0),
@@ -125,7 +125,7 @@ std::string get_status_execution(uint32_t NUMBER_OF_PROCESSORS){
     for (uint32_t cpu = 0 ; cpu < NUMBER_OF_PROCESSORS ; cpu++) {
         snprintf(report,sizeof(report),"%s","==========================================================================\n");
         final_report+=report;
-        // Get benchmark name 
+        // Get benchmark name
         snprintf(report,sizeof(report),"Benchmark %s\n",orcs_engine.arg_trace_file_name[cpu].c_str());
         final_report+=report;
 
@@ -196,7 +196,7 @@ int main(int argc, char **argv) {
         //Processor
         //==================
         orcs_engine.processor[i].allocate();
-        orcs_engine.processor[i].set_processor_id(i);        
+        orcs_engine.processor[i].set_processor_id(i);
         //==================
         //Branch Predictor
         //==================
@@ -218,7 +218,7 @@ int main(int argc, char **argv) {
         {
             orcs_engine.processor[i].clock();
         }
-        
+
         orcs_engine.global_cycle++;
     }
     // *****************************************************************************************
@@ -226,7 +226,7 @@ int main(int argc, char **argv) {
 	ORCS_PRINTF("Writting FILE\n")
     uint64_t FullLength = 0;
     for (uint32_t cpu = 0; cpu < NUMBER_OF_PROCESSORS; cpu++){
-        FullLength += orcs_engine.trace_reader[cpu].get_trace_opcode_max() + 1; 
+        FullLength += orcs_engine.trace_reader[cpu].get_trace_opcode_max() + 1;
     }
     FILE *output = stdout;
     bool close = false;
@@ -260,7 +260,8 @@ int main(int argc, char **argv) {
             utils_t::largeSeparator(output);
         }
     }
-    orcs_engine.memory_controller->statistics();    
+    orcs_engine.memory_controller->statistics();
+    orcs_engine.uopCache->statistics();    
     ORCS_PRINTF("Writed FILE\n")
     // *****************************************************************************************
 
@@ -273,6 +274,6 @@ int main(int argc, char **argv) {
     ORCS_PRINTF("Deleting Cache manager\n")
     delete orcs_engine.cacheManager;
     ORCS_PRINTF("Deleting Memory Controller\n")
-    delete orcs_engine.memory_controller; 
+    delete orcs_engine.memory_controller;
     delete orcs_engine.configuration;
 }
