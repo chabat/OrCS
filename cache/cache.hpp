@@ -65,7 +65,7 @@ class cache_t {
         INSTANTIATE_GET_SET_ADD(uint64_t,cache_write)
         INSTANTIATE_GET_SET_ADD(uint64_t,cache_writeback)
         INSTANTIATE_GET_SET_ADD(uint64_t,change_line)
-        
+
         INSTANTIATE_GET_SET_ADD(uint32_t,LINE_SIZE)
         INSTANTIATE_GET_SET_ADD(uint32_t,PREFETCHER_ACTIVE)
         INSTANTIATE_GET_SET_ADD(uint32_t,INSTRUCTION_LEVELS)

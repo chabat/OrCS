@@ -15,6 +15,7 @@ FD_PROCESSOR = processor
 FD_BRANCH_PREDICTOR = branch_predictor
 FD_OTHER = utils
 FD_CACHE = cache
+FD_UOP_CACHE = uop_cache
 FD_PREFETCHER = prefetcher
 FD_MEMORY = main_memory
 FD_EMC = emc
@@ -40,6 +41,8 @@ SRC_BRANCH_PREDICTOR =	$(FD_BRANCH_PREDICTOR)/branch_predictor.cpp\
 SRC_CACHE = $(FD_CACHE)/cache.cpp\
 			$(FD_CACHE)/cache_manager.cpp\
 			$(FD_CACHE)/mshr_entry.cpp
+
+SRC_UOP_CACHE = $(FD_UOP_CACHE)/uopCache.cpp\
 
 SRC_OTHER = $(FD_OTHER)/utils.cpp\
 			$(FD_OTHER)/enumerations.cpp
