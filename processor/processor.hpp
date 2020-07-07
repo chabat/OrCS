@@ -1,7 +1,7 @@
 // ============================================================================
 // ============================================================================
 class processor_t {
-    private:
+    private:    
 	//=============
 	//Fetch Related
 	//=============
@@ -44,6 +44,8 @@ class processor_t {
 	uint64_t stat_inst_int_fp_completed;
 	uint64_t stat_inst_mul_fp_completed;
 	uint64_t stat_inst_div_fp_completed;
+	uint64_t stat_inst_hive_completed;
+	uint64_t stat_inst_vima_completed;
 	uint64_t stat_inst_nop_completed;
 	uint64_t stat_inst_load_completed;
 	uint64_t stat_inst_store_completed;
@@ -78,7 +80,7 @@ class processor_t {
 
 	uint32_t QTDE_INTEGER_FU;
 
-	//FP ULAS LATENCY
+	//FP ULAS LATENCY 
 	// FLOATING POINT DIV
 	uint32_t LATENCY_FP_DIV;
 	uint32_t WAIT_NEXT_FP_DIV;
@@ -109,6 +111,8 @@ class processor_t {
 	//MOB
 	uint32_t MOB_READ;
 	uint32_t MOB_WRITE;
+	uint32_t MOB_HIVE;
+	uint32_t MOB_VIMA;
 	// =====================
 
 	// =====================
@@ -122,6 +126,14 @@ class processor_t {
 	uint32_t STORE_UNIT;
 	uint32_t WAIT_NEXT_MEM_STORE;
 	uint32_t LATENCY_MEM_STORE;
+	// HIVE Units
+	uint32_t HIVE_UNIT;
+	uint32_t WAIT_NEXT_MEM_HIVE;
+	uint32_t LATENCY_MEM_HIVE;
+	// VIMA Units
+	uint32_t VIMA_UNIT;
+	uint32_t WAIT_NEXT_MEM_VIMA;
+	uint32_t LATENCY_MEM_VIMA;
 
 	uint32_t QTDE_MEMORY_FU;
 
@@ -154,6 +166,7 @@ class processor_t {
 	disambiguation_method_t DISAMBIGUATION_METHOD;
 
 	uint32_t DEBUG;
+	uint32_t PROCESSOR_DEBUG;
 	uint32_t FETCH_DEBUG;
 	uint32_t DECODE_DEBUG;
 	uint32_t RENAME_DEBUG;
@@ -162,12 +175,15 @@ class processor_t {
 	uint32_t MOB_DEBUG;
 	uint32_t PRINT_MOB;
 	uint32_t PRINT_ROB;
+	uint32_t HIVE_DEBUG;
+	uint32_t VIMA_DEBUG;
 	uint32_t COMMIT_DEBUG;
+	uint32_t MSHR_DEBUG;
 
 	uint32_t WAIT_CYCLE;
 
     public:
-
+		
 		// ====================================================================
 		/// Attributes
 		// ====================================================================
@@ -190,7 +206,9 @@ class processor_t {
 		uint64_t commit_uop_counter;
 		uint32_t memory_read_executed;
 		uint32_t memory_write_executed;
-
+		uint32_t memory_hive_executed;
+		uint32_t memory_vima_executed;
+		
 		// ====================================================================
 		/// Methods
 		// ====================================================================
@@ -203,20 +221,30 @@ class processor_t {
 		void printCache(FILE *output);
 		uint32_t get_cache_list(cacheId_t cache_type, libconfig::Setting &cfg_cache_defs, uint32_t *ASSOCIATIVITY, uint32_t *LATENCY, uint32_t *SIZE, uint32_t *SETS, uint32_t *LEVEL);
 
-			// ====================================================================
-			// ROB RELATED
-			void update_registers(reorder_buffer_line_t *robLine);
+		// ====================================================================
+		// ROB RELATED
+		void update_registers(reorder_buffer_line_t *robLine);
 		void solve_registers_dependency(reorder_buffer_line_t *rob_line);
 		int32_t searchPositionROB();
 		void removeFrontROB();
 		// ====================================================================
 		// MOB READ RELATED
 		int32_t search_position_mob_read();
-		void remove_front_mob_read();
+		void remove_front_mob_read();	
 		// ====================================================================
 		// MOB WRITE RELATED
 		int32_t search_position_mob_write();
 		void remove_front_mob_write();
+		// ====================================================================
+		// MOB HIVE RELATED
+		void print_mob_hive();
+		int32_t search_position_mob_hive();
+		void remove_front_mob_hive();
+		// ====================================================================
+		// MOB HIVE RELATED
+		void print_mob_vima();
+		int32_t search_position_mob_vima();
+		void remove_front_mob_vima();
 		// ====================================================================
 		// Stage Methods
 		// ====================================================================
@@ -230,9 +258,14 @@ class processor_t {
 		void clean_mob_read();
 		uint32_t mob_write();
 		void clean_mob_write();
+		uint32_t mob_hive();
+		void clean_mob_hive();
+		uint32_t mob_vima();
+		void clean_mob_vima();
+		
 		void commit();
 		// ====================================================================
-		// Bool Functions @return
+		// Bool Functions @return 
 		bool isBusy();
 		// ====================================================================
 		// Other Methods
@@ -242,7 +275,7 @@ class processor_t {
 		// =======================
 		circular_buffer_t<uop_package_t> decodeBuffer;
 		circular_buffer_t<opcode_package_t> fetchBuffer;
-
+		
 		// =======================
 		// Register Alias Table - RAT
 		// =======================
@@ -280,14 +313,34 @@ class processor_t {
 		// Pointers to retain oldests memory operations
 		memory_order_buffer_line_t *oldest_write_to_send;
 		// ======================
+		//HIVE
+		// ======================
+		memory_order_buffer_line_t *memory_order_buffer_hive;
+		uint32_t memory_order_buffer_hive_start;
+        uint32_t memory_order_buffer_hive_end;
+        uint32_t memory_order_buffer_hive_used;
+		memory_order_buffer_line_t* get_next_op_hive();
+		// Pointers to retain oldests memory operations
+		memory_order_buffer_line_t *oldest_hive_to_send;
+		// ======================
+		//VIMA
+		// ======================
+		memory_order_buffer_line_t *memory_order_buffer_vima;
+		uint32_t memory_order_buffer_vima_start;
+        uint32_t memory_order_buffer_vima_end;
+        uint32_t memory_order_buffer_vima_used;
+		memory_order_buffer_line_t* get_next_op_vima();
+		// Pointers to retain oldests memory operations
+		memory_order_buffer_line_t *oldest_vima_to_send;
+		// ======================
 		// Parallel requests
 		uint32_t counter_mshr_read;
 		uint32_t counter_mshr_write;
 		int32_t request_DRAM;
 		// ======================
-		//Reservation Station
+		//Reservation Station 
 		container_ptr_reorder_buffer_line_t unified_reservation_station;
-		// ======================
+		// ====================== 
 		// ======================
 		// Funcional Unitis - FUs
 		// ======================
@@ -302,6 +355,8 @@ class processor_t {
 		// Memory FUs
 		uint64_t *fu_mem_load;
 		uint64_t *fu_mem_store;
+		uint64_t *fu_mem_hive;
+		uint64_t *fu_mem_vima;
 		//container to accelerate  execution
 		container_ptr_reorder_buffer_line_t unified_functional_units;
 
@@ -339,6 +394,8 @@ class processor_t {
 		INSTANTIATE_GET_SET_ADD(uint64_t,stat_inst_int_fp_completed)
 		INSTANTIATE_GET_SET_ADD(uint64_t,stat_inst_mul_alu_completed)
 		INSTANTIATE_GET_SET_ADD(uint64_t,stat_inst_mul_fp_completed)
+		INSTANTIATE_GET_SET_ADD(uint64_t,stat_inst_hive_completed)
+		INSTANTIATE_GET_SET_ADD(uint64_t,stat_inst_vima_completed)
 		INSTANTIATE_GET_SET_ADD(uint64_t,stat_inst_load_completed)
 		INSTANTIATE_GET_SET_ADD(uint64_t,stat_inst_store_completed)
 		INSTANTIATE_GET_SET_ADD(uint64_t,stat_inst_nop_completed)
@@ -372,7 +429,7 @@ class processor_t {
 
 		INSTANTIATE_GET_SET_ADD(uint32_t,QTDE_INTEGER_FU)
 
-		//FP ULAS LATENCY
+		//FP ULAS LATENCY 
 		// FLOATING POINT DIV
 		INSTANTIATE_GET_SET_ADD(uint32_t,LATENCY_FP_DIV)
 		INSTANTIATE_GET_SET_ADD(uint32_t,WAIT_NEXT_FP_DIV)
@@ -403,6 +460,8 @@ class processor_t {
 		//MOB
 		INSTANTIATE_GET_SET_ADD(uint32_t,MOB_READ)
 		INSTANTIATE_GET_SET_ADD(uint32_t,MOB_WRITE)
+		INSTANTIATE_GET_SET_ADD(uint32_t,MOB_HIVE)
+		INSTANTIATE_GET_SET_ADD(uint32_t,MOB_VIMA)
 		// =====================
 
 		// =====================
@@ -417,6 +476,14 @@ class processor_t {
 		INSTANTIATE_GET_SET_ADD(uint32_t,WAIT_NEXT_MEM_STORE)
 		INSTANTIATE_GET_SET_ADD(uint32_t,LATENCY_MEM_STORE)
 
+		INSTANTIATE_GET_SET_ADD(uint32_t,HIVE_UNIT)
+		INSTANTIATE_GET_SET_ADD(uint32_t,WAIT_NEXT_MEM_HIVE)
+		INSTANTIATE_GET_SET_ADD(uint32_t,LATENCY_MEM_HIVE)
+
+		INSTANTIATE_GET_SET_ADD(uint32_t,VIMA_UNIT)
+		INSTANTIATE_GET_SET_ADD(uint32_t,WAIT_NEXT_MEM_VIMA)
+		INSTANTIATE_GET_SET_ADD(uint32_t,LATENCY_MEM_VIMA)
+
 		INSTANTIATE_GET_SET_ADD(uint32_t,QTDE_MEMORY_FU)
 
 		INSTANTIATE_GET_SET_ADD(uint32_t,LINE_SIZE)
@@ -430,6 +497,7 @@ class processor_t {
 		INSTANTIATE_GET_SET_ADD(uint32_t,DISAMBIGUATION_ENABLED)
 
 		INSTANTIATE_GET_SET_ADD(uint32_t,DEBUG)
+		INSTANTIATE_GET_SET_ADD(uint32_t,PROCESSOR_DEBUG)
 		INSTANTIATE_GET_SET_ADD(uint32_t,FETCH_DEBUG)
 		INSTANTIATE_GET_SET_ADD(uint32_t,DECODE_DEBUG)
 		INSTANTIATE_GET_SET_ADD(uint32_t,RENAME_DEBUG)
@@ -438,12 +506,15 @@ class processor_t {
 		INSTANTIATE_GET_SET_ADD(uint32_t,MOB_DEBUG)
 		INSTANTIATE_GET_SET_ADD(uint32_t,PRINT_MOB)
 		INSTANTIATE_GET_SET_ADD(uint32_t,PRINT_ROB)
+		INSTANTIATE_GET_SET_ADD(uint32_t,HIVE_DEBUG)
+		INSTANTIATE_GET_SET_ADD(uint32_t,VIMA_DEBUG)
 		INSTANTIATE_GET_SET_ADD(uint32_t,COMMIT_DEBUG)
+		INSTANTIATE_GET_SET_ADD(uint32_t,MSHR_DEBUG)
 
 		INSTANTIATE_GET_SET_ADD(uint32_t,WAIT_CYCLE)
 
 		INSTANTIATE_GET_SET_ADD(uint32_t,INSTRUCTION_CACHES)
 		INSTANTIATE_GET_SET_ADD(uint32_t,DATA_CACHES)
-
+		
 		// ====================================================================
 };

@@ -6,6 +6,8 @@ class orcs_engine_t {
     public:
         /// Program input
         std::vector<std::string> arg_trace_file_name;
+            // Pin will be used as input
+        bool use_pin;
         /// Control the Global Cycle
         uint64_t global_cycle;
         // =======================================
@@ -33,13 +35,28 @@ class orcs_engine_t {
         cache_manager_t *cacheManager;
         //Memory Controller
         memory_controller_t *memory_controller;
+        hive_controller_t *hive_controller;
+        vima_controller_t *vima_controller;
 		//Uop Cache
 		uopCache_t *uopCache;
+
+
         // ====================================================================
         /// Statistics related
         // ====================================================================
         /// Time statistics
         struct timeval stat_timer_start, stat_timer_end;
+        /// Memory Usage statistics
+        /// virtual memory
+        double stat_vm_start;
+        double stat_vm_allocate;
+        double stat_vm_end;
+        double stat_vm_max;
+        /// resident set size
+        double stat_rss_start;
+        double stat_rss_allocate;
+        double stat_rss_end;
+        double stat_rss_max;
         // ====================================================================
 		/// Methods
 		// ====================================================================

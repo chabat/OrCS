@@ -15,18 +15,22 @@ FD_PROCESSOR = processor
 FD_BRANCH_PREDICTOR = branch_predictor
 FD_OTHER = utils
 FD_CACHE = cache
-FD_UOP_CACHE = uop_cache
+FD_DIRECTORY = directory
 FD_PREFETCHER = prefetcher
 FD_MEMORY = main_memory
+FD_HIVE = hive
+FD_VIMA = vima
 FD_EMC = emc
 FD_CONFIG = config
 FD_DISAMBIGUATION = memory_disambiguation
-
+FD_UOP_CACHE = uop_cache
 
 ###
 LIBRARY = -lz -lconfig++
 
-SRC_PACKAGE = 		$(FD_PACKAGE)/opcode_package.cpp $(FD_PACKAGE)/uop_package.cpp
+SRC_PACKAGE = 		$(FD_PACKAGE)/opcode_package.cpp\
+					$(FD_PACKAGE)/uop_package.cpp\
+					$(FD_PACKAGE)/memory_package.cpp
 
 SRC_TRACE_READER = 	trace_reader.cpp
 
@@ -38,11 +42,11 @@ SRC_PROCESSOR =		$(FD_PROCESSOR)/processor.cpp\
 
 SRC_BRANCH_PREDICTOR =	$(FD_BRANCH_PREDICTOR)/branch_predictor.cpp\
 						$(FD_BRANCH_PREDICTOR)/piecewise.cpp
-SRC_CACHE = $(FD_CACHE)/cache.cpp\
-			$(FD_CACHE)/cache_manager.cpp\
-			$(FD_CACHE)/mshr_entry.cpp
 
-SRC_UOP_CACHE = $(FD_UOP_CACHE)/uopCache.cpp\
+SRC_CACHE = $(FD_CACHE)/cache.cpp\
+			$(FD_CACHE)/cache_manager.cpp
+
+SRC_DIRECTORY = $(FD_DIRECTORY)/directory.cpp
 
 SRC_OTHER = $(FD_OTHER)/utils.cpp\
 			$(FD_OTHER)/enumerations.cpp
@@ -51,7 +55,15 @@ SRC_PREFETCHER = $(FD_PREFETCHER)/prefetcher.cpp\
 				 $(FD_PREFETCHER)/stride_prefetcher.cpp
 
 SRC_MEMORY = $(FD_MEMORY)/memory_channel.cpp\
-			 $(FD_MEMORY)/memory_controller.cpp
+			 $(FD_MEMORY)/memory_controller.cpp\
+			 $(FD_MEMORY)/memory_request_client.cpp
+
+SRC_HIVE = $(FD_HIVE)/hive_controller.cpp
+
+SRC_VIMA = $(FD_VIMA)/vima_controller.cpp\
+			$(FD_VIMA)/vima_vector.cpp
+
+SRC_UOP_CACHE = $(FD_UOP_CACHE)/uopCache.cpp\
 
 SRC_CONFIG = $(FD_CONFIG)/config.cpp
 
@@ -63,8 +75,11 @@ SRC_CORE =  simulator.cpp orcs_engine.cpp\
 			$(SRC_OTHER)\
 			$(SRC_BRANCH_PREDICTOR)\
 			$(SRC_CACHE)\
-			$(SRC_UOP_CACHE)\
+			$(SRC_HIVE)\
+			$(SRC_VIMA)\
+			$(SRC_DIRECTORY)\
 			$(SRC_PREFETCHER)\
+			$(SRC_UOP_CACHE)\
 			$(SRC_CONFIG)\
 			$(SRC_MEMORY)\
 			$(SRC_EMC)

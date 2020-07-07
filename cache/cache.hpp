@@ -25,6 +25,23 @@ class cache_t {
         uint64_t cacheWriteBack;
         uint64_t changeLine;
 
+        uint64_t offset_bits_shift;
+        uint64_t index_bits_shift;
+        uint64_t tag_bits_shift;
+
+        uint64_t offset_bits_mask;
+        uint64_t index_bits_mask;
+        uint64_t tag_bits_mask;
+
+        // Get channel to access DATA
+        inline uint64_t get_index(uint64_t addr) {
+            return (addr & this->index_bits_mask) >> this->index_bits_shift;
+        }
+
+        inline uint64_t get_tag(uint64_t addr) {
+            return (addr & this->tag_bits_mask) >> this->tag_bits_shift;
+        }
+        
         uint32_t LINE_SIZE;
         uint32_t PREFETCHER_ACTIVE;
         uint32_t INSTRUCTION_LEVELS;
@@ -48,13 +65,14 @@ class cache_t {
 
         void statistics();
         void allocate(uint32_t NUMBER_OF_PROCESSORS, uint32_t INSTRUCTION_LEVELS, uint32_t DATA_LEVELS);//allocate data structure
-        void writeBack(line_t *line); //makes writeback of line
-        void returnLine(uint64_t address, cache_t *cache);//return line from lower cache level
+        void writeBack(line_t *line, directory_t *directory, uint32_t idx, uint32_t access_line);       //makes writeback of line
+        void returnLine(uint64_t address, cache_t *cache, directory_t *directory);//return line from lower cache level
         void tagIdxSetCalculation(uint64_t address, uint32_t *idx, uint64_t *tag); //calculate index of data, makes tag from address
         uint32_t searchLru(cacheSet_t *set);//searh LRU to substitue
         uint32_t read(uint64_t address, uint32_t &ttc);
-        uint32_t write(uint64_t address);
-        line_t* installLine(uint64_t address, uint32_t latency);//install line of cache |mem_controller -> caches|
+        uint32_t write(uint64_t address, directory_t *directory);
+        void printTagIdx(uint64_t address);
+        line_t *installLine(uint64_t address, uint32_t latency, directory_t *directory, uint32_t &idx, uint32_t &line); //install line of cache |mem_controller -> caches|
 
         // Getters and setters
         INSTANTIATE_GET_SET_ADD(uint64_t,cache_hit)
@@ -65,7 +83,7 @@ class cache_t {
         INSTANTIATE_GET_SET_ADD(uint64_t,cache_write)
         INSTANTIATE_GET_SET_ADD(uint64_t,cache_writeback)
         INSTANTIATE_GET_SET_ADD(uint64_t,change_line)
-
+        
         INSTANTIATE_GET_SET_ADD(uint32_t,LINE_SIZE)
         INSTANTIATE_GET_SET_ADD(uint32_t,PREFETCHER_ACTIVE)
         INSTANTIATE_GET_SET_ADD(uint32_t,INSTRUCTION_LEVELS)

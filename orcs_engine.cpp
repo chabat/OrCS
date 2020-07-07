@@ -8,11 +8,12 @@ orcs_engine_t::orcs_engine_t() {
 	this->cacheManager = NULL;
 	this->memory_controller = NULL;
 	this->configuration = NULL;
-	this->uopCache = NULL;
+	this->use_pin = false;
 }
 // =====================================================================
 void orcs_engine_t::allocate(uint32_t NUMBER_OF_PROCESSORS) {
 	// Statistics Time
+	utils_t::process_mem_usage(&this->stat_vm_allocate, &this->stat_rss_allocate);
 	gettimeofday(&this->stat_timer_start, NULL);
 	gettimeofday(&this->stat_timer_end, NULL);
 	//
@@ -23,6 +24,8 @@ void orcs_engine_t::allocate(uint32_t NUMBER_OF_PROCESSORS) {
 	this->branchPredictor = new branch_predictor_t[NUMBER_OF_PROCESSORS];
 	this->cacheManager = new cache_manager_t;
 	this->memory_controller = new memory_controller_t;
+	this->hive_controller = new hive_controller_t;
+	this->vima_controller = new vima_controller_t;
 	this->uopCache = new uopCache_t;
 }
 

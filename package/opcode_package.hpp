@@ -1,6 +1,8 @@
+#ifndef OPCODE_PACKAGE_H
+#define OPCODE_PACKAGE_H
 // ============================================================================
 // ============================================================================
-class opcode_package_t {
+class opcode_package_t : public memory_request_client_t {
     public:
         /// TRACE Variables
         char opcode_assembly[TRACE_LINE_SIZE];
@@ -32,22 +34,28 @@ class opcode_package_t {
         bool is_predicated;
         bool is_prefetch;
 
+        bool is_hive;
+        int32_t hive_read1;
+        int32_t hive_read2;
+        int32_t hive_write;
+
+        bool is_vima;
+
         // ====================================================================
         /// Status Control
         // ====================================================================
-        package_state_t status;
-        uint64_t readyAt;
         uint64_t opcode_number;
         // ====================================================================
         /// Methods
         // ====================================================================
+        
         opcode_package_t();
+        ~opcode_package_t();
+        #ifndef __PIN__
         void package_clean();
-        void updatePackageUntrated(uint32_t stallTime);
-        void updatePackageReady(uint32_t stallTime);
-        void updatePackageWait(uint32_t stallTime);
-        void updatePackageFree(uint32_t stallTime);
         std::string content_to_string();
         std::string content_to_string2();
-
+        #endif
+       
 };
+#endif // OPCODE_PACKAGE_H

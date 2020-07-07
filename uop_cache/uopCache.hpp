@@ -1,36 +1,26 @@
 #ifndef UOP_CACHE_H
 #define UOP_CACHE_H
-using namespace std;
+
+//using namespace std;
 
 class uopCache_t{
     private:
-        const uint32_t N_WAYS = 8;
-        const uint32_t BUFFER_SIZE = 18;
-        const uint32_t LINE_SIZE = 6;
+        uint32_t UC_SETS;
+        uint32_t MAX_UOPS_PER_LINE;
+        uint32_t MAX_BASIC_BLOCK_SIZE;
+        uint32_t OUTPUT_WIDTH;
+
     public:
-        const uint32_t N_SETS = 32;
-        uint32_t currInstCount;
-        uint32_t instToIgnore;
-        uint32_t hitCounter;
-        uint32_t missCounter;
-        uint64_t decodeTimeSaved;
+        uopSet_t *sets;
 
         uopCache_t();
         ~uopCache_t();
+        void allocate();
 
-        void fillBufferInsert(uop_package_t uop);
-        void insert();
-        void evict(uint32_t set);
-        void statistics();
+        INSTANTIATE_GET_SET_ADD(uint32_t, UC_SETS)
+        INSTANTIATE_GET_SET_ADD(uint32_t, MAX_BASIC_BLOCK_SIZE)
+        INSTANTIATE_GET_SET_ADD(uint32_t, OUTPUT_WIDTH)
 
-        uint32_t associativity;
-        uint32_t n_sets;
-        uopCacheSet_t *sets;
-
-        bool waitBBEnd;
-        uint32_t fillBufferIndex;
-        uop_package_t lastUop;
-        uop_package_t *fillBuffer;
 };
 
 #endif // UOP_CACHE_H

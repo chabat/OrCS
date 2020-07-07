@@ -22,6 +22,7 @@
 #include <cstdlib>
 #include <string>
 #include <cstring>
+#include <fstream>
 #include <vector>
 #include <list>
 #include <queue>
@@ -76,13 +77,13 @@ class cache_manager_t;
 class mshr_entry_t;
 
 //  =========================================//
-// Uop Cache Classes
+// Directory Classes
 //  =========================================//
 
-class uopCache_t;
-class uopCacheSet_t;
-class uopLine_t;
-
+class directory_line_t;
+class directory_set_t;
+class directory_t;
+class directory_manager_t;
 //  =========================================//
 // Usefull Classes
 //  =========================================//
@@ -100,6 +101,22 @@ class stride_prefetcher_t;
 //  =========================================//
 class memory_controller_t;
 //  =========================================//
+// HIVE Classes
+//  =========================================//
+class hive_controller_t;
+class hive_register_t;
+//  =========================================//
+// VIMA Classes
+//  =========================================//
+class vima_controller_t;
+class vima_vector_t;
+//  =========================================//
+// Uop Cache Classes
+//  =========================================//
+class uopCache_t;
+class uopSet_t;
+class uopLine_t;
+//  =========================================//
 // DATA Types
 // ====================================
 typedef std::vector <reorder_buffer_line_t*> container_ptr_reorder_buffer_line_t;
@@ -108,30 +125,10 @@ typedef std::vector <reorder_buffer_line_t*> container_ptr_reorder_buffer_line_t
 // ============================================================================
 extern orcs_engine_t orcs_engine;
 
-// #define NUMBER_OF_PROCESSORS 1
-
-#define SANITY_CHECK 0
-#define HEARTBEAT 1
-#define HEARTBEAT_CLOCKS 10000000
-
-#define KILO 1024
-#define MEGA KILO*KILO
-// ============================================================================
-/// Definitions for Log, Debug, Warning, Error and Statistics
-// ============================================================================
-#define POSITION_FAIL -1        /// FAIL when return is int32_t
-#define FAIL 0                  /// FAIL when return is int32_t or uint32_t
-#define OK 1                    /// OK when return is int32_t or uint32_t
-#define NOT_ALL_REGS 2
-#define TRACE_LINE_SIZE 512
-
-// ========================
-// Defines Simulators Caracteristics
-// ========================
-#define MAX_UOP_DECODED 5
-#define MAX_REGISTERS 6         /// opcode_package_t uop_package_t  (Max number of register (read or write) for one opcode/uop)
-#define MAX_ASSEMBLY_SIZE 32    /// In general 20 is enough
-// ========================
+// ==============================================================================
+/// Definitions
+// ==============================================================================
+#include "defines.hpp"
 // ==============================================================================
 /// Enumerations
 // ==============================================================================
@@ -149,6 +146,7 @@ extern orcs_engine_t orcs_engine;
 #include "./orcs_engine.hpp"
 #include "./config/config.hpp"
 #include "./trace_reader.hpp"
+#include "./main_memory/memory_request_client.hpp"
 #include "./package/opcode_package.hpp"
 
 
@@ -168,6 +166,7 @@ extern orcs_engine_t orcs_engine;
 // Core Includes
 //  =========================================//
 #include "./package/uop_package.hpp"
+#include "./package/memory_package.hpp"
 #include "./processor/reorder_buffer_line.hpp"
 #include "./processor/memory_order_buffer_line.hpp"
 #include "./processor/processor.hpp"
@@ -188,7 +187,13 @@ extern orcs_engine_t orcs_engine;
 #include "./cache/cacheSet.hpp"
 #include "./cache/cache.hpp"
 #include "./cache/cache_manager.hpp"
-#include "./cache/mshr_entry.hpp"
+//  =========================================//
+// Directory Classes
+//  =========================================//
+// // DIRECTORY INCLUDES
+#include "./directory/directory.hpp"
+#include "./directory/directory_line.hpp"
+#include "./directory/directory_set.hpp"
 //  =========================================//
 // // Prefetcher INCLUDES
 #include "./prefetcher/prefetcher.hpp"
@@ -199,8 +204,16 @@ extern orcs_engine_t orcs_engine;
 #include "./main_memory/memory_channel.hpp"
 #include "./main_memory/memory_controller.hpp"
 //  =========================================//
-// // Uop Cache INCLUDES
+// // HIVE INCLUDES
+#include "./hive/hive_controller.hpp"
+//  =========================================//
+// // VIMA INCLUDES
+#include "./vima/vima_controller.hpp"
+#include "./vima/vima_vector.hpp"
+//  =========================================//
+// // UOP CACHE INCLUDES
 #include "./uop_cache/uopLine.hpp"
-#include "./uop_cache/uopCacheSet.hpp"
+#include "./uop_cache/uopSet.hpp"
 #include "./uop_cache/uopCache.hpp"
+
 #endif  // _ORCS_ORCS_HPP_

@@ -1,4 +1,9 @@
+#ifndef __PIN__
 #include "../simulator.hpp"
+#else
+#include "opcode_package.hpp"
+#endif
+
 #include <string>
 // =====================================================================
 opcode_package_t::opcode_package_t() {
@@ -35,10 +40,21 @@ opcode_package_t::opcode_package_t() {
     this->is_predicated = false;
     this->is_prefetch = false;
 
+    this->is_hive = false;
+    this->is_vima = false;
+
     this->status = PACKAGE_STATE_FREE;
+    #ifndef __PIN__
     this->readyAt = orcs_engine.get_global_cycle();
+    #else
+    this->readyAt = 0;
+    #endif  
 }
 
+opcode_package_t::~opcode_package_t() {
+    
+}
+#ifndef __PIN__
 // =============================================================================
 void opcode_package_t::package_clean() {
     /// TRACE Variables
@@ -66,29 +82,16 @@ void opcode_package_t::package_clean() {
     this->write_size = 0;
     this->is_predicated = false;
     this->is_prefetch = false;
+
+    this->is_hive = false;
+    this->hive_read1 = 0;
+    this->hive_read2 = 0;
+    this->hive_write = 0;
     
     //====Control
     this->readyAt = 0;
     this->status = PACKAGE_STATE_FREE;
     this->opcode_number = 0;
-
-}
-
-void opcode_package_t::updatePackageUntrated(uint32_t stallTime){
-    this->status = PACKAGE_STATE_UNTREATED;
-    this->readyAt = orcs_engine.get_global_cycle()+stallTime;
-}
-void opcode_package_t::updatePackageReady(uint32_t stallTime){
-    this->status = PACKAGE_STATE_READY;
-    this->readyAt = orcs_engine.get_global_cycle()+stallTime;
-}
-void opcode_package_t::updatePackageWait(uint32_t stallTime){
-    this->status = PACKAGE_STATE_WAIT;
-    this->readyAt = orcs_engine.get_global_cycle()+stallTime;
-}
-void opcode_package_t::updatePackageFree(uint32_t stallTime){
-    this->status = PACKAGE_STATE_FREE;
-    this->readyAt = orcs_engine.get_global_cycle()+stallTime;
 }
 
 /// Convert Instruction variables into String
@@ -140,3 +143,5 @@ std::string opcode_package_t::content_to_string2() {
 
     return content_string;
 }
+
+#endif // ifndef __PIN__

@@ -7,9 +7,11 @@ processor_t::processor_t()
 	// ========OLDEST MEMORY OPERATIONS POINTER======
 	this->oldest_read_to_send = NULL;
 	this->oldest_write_to_send = NULL;
+	this->oldest_hive_to_send = NULL;
 	// ========MOB======
 	this->memory_order_buffer_read = NULL;
 	this->memory_order_buffer_write = NULL;
+	this->memory_order_buffer_hive = NULL;
 	//=========DESAMBIGUATION ============
 	this->disambiguator = NULL;
 	// ==========RAT======
@@ -35,10 +37,12 @@ processor_t::~processor_t()
 	//Memory structures
 	utils_t::template_delete_array<memory_order_buffer_line_t>(this->memory_order_buffer_read);
 	utils_t::template_delete_array<memory_order_buffer_line_t>(this->memory_order_buffer_write);
+	utils_t::template_delete_array<memory_order_buffer_line_t>(this->memory_order_buffer_hive);
 	utils_t::template_delete_variable<desambiguation_t>(this->disambiguator);
 	//auxiliar var to maintain status oldest instruction
 	utils_t::template_delete_variable<memory_order_buffer_line_t>(this->oldest_read_to_send);
 	utils_t::template_delete_variable<memory_order_buffer_line_t>(this->oldest_write_to_send);
+	utils_t::template_delete_variable<memory_order_buffer_line_t>(this->oldest_hive_to_send);
 
 	//deleting deps array rob
 	for (size_t i = 0; i < ROB_SIZE; i++)
@@ -60,7 +64,21 @@ processor_t::~processor_t()
 	//deleting fus memory
 	utils_t::template_delete_array<uint64_t>(this->fu_mem_load);
 	utils_t::template_delete_array<uint64_t>(this->fu_mem_store);
+	utils_t::template_delete_array<uint64_t>(this->fu_mem_hive);
+	utils_t::template_delete_array<uint64_t>(this->fu_mem_vima);
 	// =====================================================================
+
+	delete[] INST_ASSOCIATIVITY;
+	delete[] INST_LATENCY;
+	delete[] INST_SIZE;
+	delete[] INST_SETS;
+	delete[] INST_LEVEL;
+
+	delete[] DATA_ASSOCIATIVITY;
+	delete[] DATA_LATENCY;
+	delete[] DATA_SIZE;
+	delete[] DATA_SETS;
+	delete[] DATA_LEVEL;
 }
 
 uint32_t processor_t::get_cache_list(cacheId_t cache_type, libconfig::Setting &cfg_cache_defs, uint32_t *ASSOCIATIVITY, uint32_t *LATENCY, uint32_t *SIZE, uint32_t *SETS, uint32_t *LEVEL) {
@@ -90,12 +108,18 @@ uint32_t processor_t::get_cache_list(cacheId_t cache_type, libconfig::Setting &c
 			SIZE[i] = cfg_cache["SIZE"];
 			SETS[i] = ((SIZE[i]/ LINE_SIZE) / ASSOCIATIVITY[i]);
 			LEVEL[i] = cfg_cache["LEVEL"];
-		} catch (libconfig::SettingNotFoundException const(&nfex)) {
+		} catch (libconfig::SettingNotFoundException const &nfex) {
             ERROR_PRINTF("MISSING CACHE PARAMETERS");
-        } catch (libconfig::SettingTypeException const(&tex)) {
+        } catch (libconfig::SettingTypeException const &tex) {
             ERROR_PRINTF("WRONG TYPE CACHE PARAMETERS");
         }
 	}
+
+	delete[] ASSOCIATIVITY;
+	delete[] LATENCY;
+	delete[] SIZE;
+	delete[] SETS;
+	delete[] LEVEL;
 	return N_CACHES;
 }
 
@@ -159,8 +183,11 @@ void processor_t::allocate() {
 
 	set_MOB_READ (cfg_processor["MOB_READ"]);
 	set_MOB_WRITE (cfg_processor["MOB_WRITE"]);
+	set_MOB_HIVE (cfg_processor["MOB_HIVE"]);
+	set_MOB_VIMA (cfg_processor["MOB_VIMA"]);
 
 	set_DEBUG(cfg_processor["DEBUG"]);
+	set_PROCESSOR_DEBUG(cfg_processor["PROCESSOR_DEBUG"]);
 	set_FETCH_DEBUG(cfg_processor["FETCH_DEBUG"]);
 	set_DECODE_DEBUG(cfg_processor["DECODE_DEBUG"]);
 	set_RENAME_DEBUG(cfg_processor["RENAME_DEBUG"]);
@@ -169,7 +196,10 @@ void processor_t::allocate() {
 	set_MOB_DEBUG(cfg_processor["MOB_DEBUG"]);
 	set_PRINT_MOB(cfg_processor["PRINT_MOB"]);
 	set_PRINT_ROB(cfg_processor["PRINT_ROB"]);
+	set_HIVE_DEBUG(cfg_processor["HIVE_DEBUG"]);
+	set_VIMA_DEBUG(cfg_processor["VIMA_DEBUG"]);
 	set_COMMIT_DEBUG(cfg_processor["COMMIT_DEBUG"]);
+	set_MSHR_DEBUG(cfg_processor["MSHR_DEBUG"]);
 
 	set_WAIT_CYCLE(cfg_processor["WAIT_CYCLE"]);
 	// Load Units
@@ -181,7 +211,15 @@ void processor_t::allocate() {
 	set_WAIT_NEXT_MEM_STORE (cfg_processor["WAIT_NEXT_MEM_STORE"]);
 	set_LATENCY_MEM_STORE (cfg_processor["LATENCY_MEM_STORE"]);
 
-	set_QTDE_MEMORY_FU (LOAD_UNIT+STORE_UNIT);
+	set_HIVE_UNIT (cfg_processor["HIVE_UNIT"]);
+	set_WAIT_NEXT_MEM_HIVE (cfg_processor["WAIT_NEXT_MEM_HIVE"]);
+	set_LATENCY_MEM_HIVE (cfg_processor["LATENCY_MEM_HIVE"]);
+
+	set_VIMA_UNIT (cfg_processor["VIMA_UNIT"]);
+	set_WAIT_NEXT_MEM_VIMA (cfg_processor["WAIT_NEXT_MEM_VIMA"]);
+	set_LATENCY_MEM_VIMA (cfg_processor["LATENCY_MEM_VIMA"]);
+
+	set_QTDE_MEMORY_FU (LOAD_UNIT+STORE_UNIT+HIVE_UNIT+VIMA_UNIT);
 
 	set_DISAMBIGUATION_ENABLED (cfg_processor["DISAMBIGUATION_ENABLED"]);
 	if (!strcmp(cfg_processor["DISAMBIGUATION_METHOD"], "HASHED")) this->DISAMBIGUATION_METHOD = DISAMBIGUATION_METHOD_HASHED;
@@ -200,7 +238,6 @@ void processor_t::allocate() {
 	// Memory controller defaults
 	libconfig::Setting &cfg_memory = cfg_root["MEMORY_CONTROLLER"];
 
-	set_RAM_LATENCY(cfg_memory["RAM_LATENCY"]);
 	set_PARALLEL_LIM_ACTIVE(cfg_memory["PARALLEL_LIM_ACTIVE"]);
 	set_MAX_PARALLEL_REQUESTS_CORE(cfg_memory["MAX_PARALLEL_REQUESTS_CORE"]);
 
@@ -303,6 +340,30 @@ void processor_t::allocate() {
 	this->memory_order_buffer_write_end = 0;
 	this->memory_order_buffer_write_used = 0;
 	// =========================================================================================
+	// // Memory Order Buffer HIVE
+	this->memory_order_buffer_hive = utils_t::template_allocate_array<memory_order_buffer_line_t>(MOB_HIVE);
+	for (size_t i = 0; i < MOB_HIVE; i++)
+	{
+		this->memory_order_buffer_hive[i].mem_deps_ptr_array = utils_t::template_allocate_initialize_array<memory_order_buffer_line_t *>(ROB_SIZE, NULL);
+	}
+	// =========================================================================================
+	// HIVE
+	this->memory_order_buffer_hive_start = 0;
+	this->memory_order_buffer_hive_end = 0;
+	this->memory_order_buffer_hive_used = 0;
+	// =========================================================================================
+	// // Memory Order Buffer VIMA
+	this->memory_order_buffer_vima = utils_t::template_allocate_array<memory_order_buffer_line_t>(MOB_VIMA);
+	for (size_t i = 0; i < MOB_VIMA; i++)
+	{
+		this->memory_order_buffer_vima[i].mem_deps_ptr_array = utils_t::template_allocate_initialize_array<memory_order_buffer_line_t *>(ROB_SIZE, NULL);
+	}
+	// =========================================================================================
+	// VIMA
+	this->memory_order_buffer_vima_start = 0;
+	this->memory_order_buffer_vima_end = 0;
+	this->memory_order_buffer_vima_used = 0;
+	// =========================================================================================
 	//disambiguator
 	switch (this->DISAMBIGUATION_METHOD){
 		case DISAMBIGUATION_METHOD_HASHED:{
@@ -319,8 +380,6 @@ void processor_t::allocate() {
 	// =========================================================================================
 	//DRAM
 	// =========================================================================================
-	this->counter_mshr_read = 0;
-	this->counter_mshr_write = 0;
 	this->request_DRAM=0;
 	// =========================================================================================
 	//allocating fus int
@@ -334,6 +393,8 @@ void processor_t::allocate() {
 	//allocating fus memory
 	this->fu_mem_load = utils_t::template_allocate_initialize_array<uint64_t>(LOAD_UNIT, 0);
 	this->fu_mem_store = utils_t::template_allocate_initialize_array<uint64_t>(STORE_UNIT, 0);
+	this->fu_mem_hive = utils_t::template_allocate_initialize_array<uint64_t>(HIVE_UNIT, 0);
+	this->fu_mem_vima = utils_t::template_allocate_initialize_array<uint64_t>(VIMA_UNIT, 0);
 	// reserving space to uops on UFs pipeline, waitng to executing ends
 	this->unified_reservation_station.reserve(ROB_SIZE);
 	// reserving space to uops on UFs pipeline, waitng to executing ends
@@ -424,6 +485,85 @@ void processor_t::remove_front_mob_read(){
 	}
 }
 // ============================================================================
+// get position on MOB hive.
+// MOB read is a circular buffer
+// ============================================================================
+int32_t processor_t::search_position_mob_hive(){
+	int32_t position = POSITION_FAIL;
+	/// There is free space.
+	if (this->memory_order_buffer_hive_used < MOB_HIVE)
+	{
+		position = this->memory_order_buffer_hive_end;
+		this->memory_order_buffer_hive_used++;
+		this->memory_order_buffer_hive_end++;
+		if (this->memory_order_buffer_hive_end >= MOB_HIVE)
+		{
+			this->memory_order_buffer_hive_end = 0;
+		}
+	}
+	return position;
+}
+// ============================================================================
+// get position on MOB vima.
+// ============================================================================
+int32_t processor_t::search_position_mob_vima(){
+	int32_t position = POSITION_FAIL;
+	/// There is free space.
+	if (this->memory_order_buffer_vima_used < MOB_VIMA)
+	{
+		position = this->memory_order_buffer_vima_end;
+		this->memory_order_buffer_vima_used++;
+		this->memory_order_buffer_vima_end++;
+		if (this->memory_order_buffer_vima_end >= MOB_VIMA)
+		{
+			this->memory_order_buffer_vima_end = 0;
+		}
+	}
+	return position;
+}
+// ============================================================================
+// remove front mob read on commit
+// ============================================================================
+void processor_t::remove_front_mob_hive(){
+	if (COMMIT_DEBUG){
+		if(orcs_engine.get_global_cycle()>WAIT_CYCLE){
+			ORCS_PRINTF("==========\n")
+			ORCS_PRINTF("RM MOB HIVE Entry \n%s\n", this->memory_order_buffer_hive[this->memory_order_buffer_hive_start].content_to_string().c_str())
+			ORCS_PRINTF("==========\n")
+		}
+	}
+	ERROR_ASSERT_PRINTF(this->memory_order_buffer_hive_used > 0, "Removendo do MOB_HIVE sem estar usado\n")
+	ERROR_ASSERT_PRINTF(this->memory_order_buffer_hive[this->memory_order_buffer_hive_start].mem_deps_ptr_array[0] == NULL, "Removendo sem resolver dependencias\n%s\n",this->memory_order_buffer_read[this->memory_order_buffer_read_start].content_to_string().c_str())
+	this->memory_order_buffer_hive_used--;
+	this->memory_order_buffer_hive[this->memory_order_buffer_hive_start].package_clean();
+	this->memory_order_buffer_hive_start++;
+	if (this->memory_order_buffer_hive_start >= MOB_HIVE)
+	{
+		this->memory_order_buffer_hive_start = 0;
+	}
+}
+// ============================================================================
+// remove front mob read on commit
+// ============================================================================
+void processor_t::remove_front_mob_vima(){
+	if (COMMIT_DEBUG){
+		if(orcs_engine.get_global_cycle()>WAIT_CYCLE){
+			ORCS_PRINTF("==========\n")
+			ORCS_PRINTF("RM MOB VIMA Entry \n%s\n", this->memory_order_buffer_vima[this->memory_order_buffer_vima_start].content_to_string().c_str())
+			ORCS_PRINTF("==========\n")
+		}
+	}
+	ERROR_ASSERT_PRINTF(this->memory_order_buffer_vima_used > 0, "Removendo do MOB_VIMA sem estar usado\n")
+	ERROR_ASSERT_PRINTF(this->memory_order_buffer_vima[this->memory_order_buffer_vima_start].mem_deps_ptr_array[0] == NULL, "Removendo sem resolver dependencias\n%s\n",this->memory_order_buffer_read[this->memory_order_buffer_read_start].content_to_string().c_str())
+	this->memory_order_buffer_vima_used--;
+	this->memory_order_buffer_vima[this->memory_order_buffer_vima_start].package_clean();
+	this->memory_order_buffer_vima_start++;
+	if (this->memory_order_buffer_vima_start >= MOB_VIMA)
+	{
+		this->memory_order_buffer_vima_start = 0;
+	}
+}
+// ============================================================================
 // get position on MOB write.
 // MOB read is a circular buffer
 // ============================================================================
@@ -474,47 +614,43 @@ void processor_t::fetch(){
 	opcode_package_t operation;
 	// uint32_t position;
 	// Trace ->fetchBuffer
-	for (uint32_t i = 0; i < FETCH_WIDTH; i++)
-	{
+	for (uint32_t i = 0; i < FETCH_WIDTH; i++) {
 		operation.package_clean();
-		bool updated = false;
+		//bool updated = false;
 		//=============================
 		//Stall full fetch buffer
 		//=============================
-		if (this->fetchBuffer.is_full())
-		{
+		if (this->fetchBuffer.is_full()) {
 			this->add_stall_full_FetchBuffer();
 			break;
 		}
 		//=============================
 		//Stall branch wrong predict
 		//=============================
-		if (this->get_stall_wrong_branch() > orcs_engine.get_global_cycle())
-		{
+		if (this->get_stall_wrong_branch() > orcs_engine.get_global_cycle()){
 			break;
 		}
 		//=============================
 		//Get new Opcode
 		//=============================
-		if (!orcs_engine.trace_reader[this->processor_id].trace_fetch(&operation))
-		{
+		if (!orcs_engine.trace_reader[this->processor_id].trace_fetch(&operation)){
 			this->traceIsOver = true;
 			break;
 		}
-		if (FETCH_DEBUG){
+		if (FETCH_DEBUG){			
 			ORCS_PRINTF("Opcode Fetched %s\n", operation.content_to_string2().c_str())
 		}
 		//============================
 		//add control variables
 		//============================
 		operation.opcode_number = this->fetchCounter;
+		operation.readyAt = orcs_engine.get_global_cycle() + FETCH_LATENCY;
 		this->fetchCounter++;
 		//============================
 		///Solve Branch
 		//============================
 
-		if (this->hasBranch)
-		{
+		if (this->hasBranch){
 			//solve
 			uint32_t stallWrongBranch = orcs_engine.branchPredictor[this->processor_id].solveBranch(this->previousBranch, operation);
 			this->set_stall_wrong_branch (orcs_engine.get_global_cycle() + stallWrongBranch);
@@ -529,8 +665,7 @@ void processor_t::fetch(){
 		//============================
 		// Operation Branch, set flag
 		//============================
-		if (operation.opcode_operation == INSTRUCTION_OPERATION_BRANCH)
-		{
+		if (operation.opcode_operation == INSTRUCTION_OPERATION_BRANCH){
 			orcs_engine.branchPredictor[this->processor_id].branches++;
 			this->previousBranch = operation;
 			this->hasBranch = true;
@@ -538,35 +673,36 @@ void processor_t::fetch(){
 		//============================
 		//Insert into fetch buffer
 		//============================
-		if (POSITION_FAIL == this->fetchBuffer.push_back(operation))
-		{
+		if (POSITION_FAIL == this->fetchBuffer.push_back(operation)){
 			break;
 		}
-		if (!updated)
-		{
-			memory_order_buffer_line_t* mob_line = new memory_order_buffer_line_t;
 
-			mob_line->opcode_ptr = fetchBuffer.back();
-			mob_line->opcode_address = fetchBuffer.back()->opcode_address;
-			mob_line->memory_address = fetchBuffer.back()->opcode_address;
-			mob_line->memory_size = fetchBuffer.back()->opcode_size;
-			mob_line->memory_operation = MEMORY_OPERATION_INST;
-			mob_line->status = PACKAGE_STATE_WAIT;
-			mob_line->readyToGo = orcs_engine.get_global_cycle() + FETCH_LATENCY;
-			mob_line->uop_number = fetchBuffer.back()->opcode_number;
-			mob_line->processor_id = this->processor_id;
+		if (PROCESSOR_DEBUG) ORCS_PRINTF ("%lu fetch(): opcode %lu %s, readyAt %u, fetchBuffer: %u, decodeBuffer: %u, robUsed: %u.\n", orcs_engine.get_global_cycle(), operation.opcode_number, get_enum_instruction_operation_char (operation.opcode_operation), operation.readyAt, this->fetchBuffer.get_size(), this->decodeBuffer.get_size(), this->robUsed)
 
-			orcs_engine.cacheManager->searchData(mob_line);
-		}
+		//if (!updated){
+			memory_package_t* request = new memory_package_t;
+			
+			request->clients.push_back (fetchBuffer.back());
+			request->processor_id = this->processor_id;
+			request->uop_number = fetchBuffer.back()->opcode_number;
+			request->opcode_address = fetchBuffer.back()->opcode_address;
+			request->opcode_number = fetchBuffer.back()->opcode_number;
+			request->memory_address = fetchBuffer.back()->opcode_address;
+			request->memory_size = fetchBuffer.back()->opcode_size;
+			request->memory_operation = MEMORY_OPERATION_INST;
+			request->is_hive = false;
+			request->is_vima = false;
+			request->status = PACKAGE_STATE_UNTREATED;
+			request->readyAt = fetchBuffer.back()->readyAt;
+			request->born_cycle = fetchBuffer.back()->readyAt;
+			request->sent_to_cache = false;
+			request->sent_to_ram = false;
+			request->type = INSTRUCTION;
+			request->op_count[request->memory_operation]++;
+
+			if (!orcs_engine.cacheManager->searchData(request)) delete request;
+		//}
 	}
-		// #if FETCH_DEBUG
-		// 	if(orcs_engine.get_global_cycle()>WAIT_CYCLE){
-		// 		for(uint32_t i = 0;i < this->fetchBuffer.size;i++){
-		// 			ORCS_PRINTF("Opcode list-> %s\n", this->fetchBuffer[i].content_to_string2().c_str())
-
-		// 		}
-		// 	}
-		// #endif
 }
 // ============================================================================
 /*
@@ -594,7 +730,6 @@ void processor_t::fetch(){
 	============================================================================
 */
 void processor_t::decode(){
-
 	if (DECODE_DEBUG){
 		ORCS_PRINTF("Decode Stage\n")
 		if(orcs_engine.get_global_cycle()>WAIT_CYCLE){
@@ -609,43 +744,134 @@ void processor_t::decode(){
 			this->fetchBuffer.front()->status != PACKAGE_STATE_READY ||
 			this->fetchBuffer.front()->readyAt > orcs_engine.get_global_cycle())
 		{
+			//if (!this->fetchBuffer.is_empty()) ORCS_PRINTF ("NOT READY %s %u %lu\n", get_enum_package_state_char (this->fetchBuffer.front()->status), this->fetchBuffer.front()->readyAt, orcs_engine.get_global_cycle())
 			break;
 		}
 		if (this->decodeBuffer.get_capacity() - this->decodeBuffer.get_size() < MAX_UOP_DECODED)
 		{
 			this->add_stall_full_DecodeBuffer();
+			//ORCS_PRINTF ("DECODE FULL %s %s %u %lu\n", get_enum_package_state_char (this->fetchBuffer.front()->status), get_enum_instruction_operation_char (this->fetchBuffer.front()->opcode_operation), this->fetchBuffer.front()->readyAt, orcs_engine.get_global_cycle())
 			break;
 		}
 		ERROR_ASSERT_PRINTF(this->decodeCounter == this->fetchBuffer.front()->opcode_number, "Trying decode out-of-order");
+		this->decodeCounter++;
 
+		//HIVE
+		if (this->fetchBuffer.front()->opcode_operation == INSTRUCTION_OPERATION_HIVE_FP_ALU ||
+		this->fetchBuffer.front()->opcode_operation == INSTRUCTION_OPERATION_HIVE_FP_DIV ||
+		this->fetchBuffer.front()->opcode_operation == INSTRUCTION_OPERATION_HIVE_FP_MUL ||
+		this->fetchBuffer.front()->opcode_operation == INSTRUCTION_OPERATION_HIVE_INT_ALU ||
+		this->fetchBuffer.front()->opcode_operation == INSTRUCTION_OPERATION_HIVE_INT_DIV ||
+		this->fetchBuffer.front()->opcode_operation == INSTRUCTION_OPERATION_HIVE_INT_MUL ||
+		this->fetchBuffer.front()->opcode_operation == INSTRUCTION_OPERATION_HIVE_LOCK ||
+		this->fetchBuffer.front()->opcode_operation == INSTRUCTION_OPERATION_HIVE_UNLOCK){
+			new_uop.package_clean();
+			new_uop.opcode_to_uop (this->uopCounter++,
+									this->fetchBuffer.front()->opcode_operation,
+									0,
+									1,
+									*this->fetchBuffer.front());
+			
+			new_uop.is_hive = true;
+			new_uop.is_vima = false;
+			new_uop.hive_read1 = this->fetchBuffer.front()->hive_read1;
+			new_uop.hive_read2 = this->fetchBuffer.front()->hive_read2;
+			new_uop.hive_write = this->fetchBuffer.front()->hive_write;
 
-		if(orcs_engine.uopCache->instToIgnore == 0){
-			//Try to hit uOpCache
-			uint64_t toHit = fetchBuffer.front()->opcode_address;
-			uint32_t setToHit = toHit & (orcs_engine.uopCache->N_SETS-1);
-			bool hit = false;
-			//printf("Vo hita no %d, %lu\n", setToHit, toHit);
-			for(i = 0; i < orcs_engine.uopCache->associativity; i++){
-				if(toHit == orcs_engine.uopCache->sets[setToHit].lines[i].tag){
-					hit = true;
-					break;
-				}
+			new_uop.updatePackageWait (DECODE_LATENCY);
+			statusInsert = this->decodeBuffer.push_back(new_uop);
+			if (DECODE_DEBUG){
+				ORCS_PRINTF("uop created %s\n", this->decodeBuffer.back()->content_to_string2().c_str())
 			}
-			if(hit){
-				uint32_t instSaved = orcs_engine.uopCache->sets[setToHit].lines[i].instCounter;
-				uint32_t uopSaved = orcs_engine.uopCache->sets[setToHit].lines[i].uopCounter;
-				//printf("HITOU SUCESSO %lu, evitou decodar %d instruções, %d uops\n", toHit, instSaved, uopSaved);
-				orcs_engine.uopCache->instToIgnore = instSaved;
-				orcs_engine.uopCache->decodeTimeSaved += DECODE_LATENCY * uopSaved;
-				orcs_engine.uopCache->hitCounter++;
+			ERROR_ASSERT_PRINTF(statusInsert != POSITION_FAIL, "Erro, Tentando decodificar mais uops que o maximo permitido")
+			this->fetchBuffer.pop_front();
+			return;
+		} else if (this->fetchBuffer.front()->opcode_operation == INSTRUCTION_OPERATION_HIVE_LOAD){
+			new_uop.package_clean();
+			new_uop.opcode_to_uop (this->uopCounter++,
+									this->fetchBuffer.front()->opcode_operation,
+									this->fetchBuffer.front()->read_address,
+									this->fetchBuffer.front()->read_size,
+									*this->fetchBuffer.front());
+			
+			new_uop.is_hive = true;
+			new_uop.is_vima = false;
+			new_uop.hive_read1 = this->fetchBuffer.front()->hive_read1;
+			new_uop.read_address = this->fetchBuffer.front()->read_address;
+			new_uop.hive_read2 = this->fetchBuffer.front()->hive_read2;
+			new_uop.read2_address = this->fetchBuffer.front()->read2_address;
+			new_uop.hive_write = this->fetchBuffer.front()->hive_write;
+			new_uop.write_address = this->fetchBuffer.front()->write_address;
+
+			new_uop.updatePackageWait (DECODE_LATENCY);
+			statusInsert = this->decodeBuffer.push_back(new_uop);
+			if (DECODE_DEBUG){
+				ORCS_PRINTF("uop created %s\n", this->decodeBuffer.back()->content_to_string2().c_str())
 			}
-			else{
-				orcs_engine.uopCache->missCounter++;
-				//printf("MISSOU %lu\n", toHit);
+			ERROR_ASSERT_PRINTF(statusInsert != POSITION_FAIL, "Erro, Tentando decodificar mais uops que o maximo permitido")
+			this->fetchBuffer.pop_front();
+			return;
+		} else if (this->fetchBuffer.front()->opcode_operation == INSTRUCTION_OPERATION_HIVE_STORE){
+			new_uop.package_clean();
+			new_uop.opcode_to_uop (this->uopCounter++,
+									this->fetchBuffer.front()->opcode_operation,
+									this->fetchBuffer.front()->write_address,
+									this->fetchBuffer.front()->write_size,
+									*this->fetchBuffer.front());
+			
+			new_uop.is_hive = true;
+			new_uop.is_vima = false;
+			new_uop.hive_read1 = this->fetchBuffer.front()->hive_read1;
+			new_uop.read_address = this->fetchBuffer.front()->read_address;
+			new_uop.hive_read2 = this->fetchBuffer.front()->hive_read2;
+			new_uop.read2_address = this->fetchBuffer.front()->read2_address;
+			new_uop.hive_write = this->fetchBuffer.front()->hive_write;
+			new_uop.write_address = this->fetchBuffer.front()->write_address;
+
+			new_uop.updatePackageWait (DECODE_LATENCY);
+			statusInsert = this->decodeBuffer.push_back(new_uop);
+			if (DECODE_DEBUG){
+				ORCS_PRINTF("uop created %s\n", this->decodeBuffer.back()->content_to_string2().c_str())
 			}
+			ERROR_ASSERT_PRINTF(statusInsert != POSITION_FAIL, "Erro, Tentando decodificar mais uops que o maximo permitido")
+			this->fetchBuffer.pop_front();
+			return;
 		}
 
-		this->decodeCounter++;
+		//VIMA
+		if (this->fetchBuffer.front()->opcode_operation == INSTRUCTION_OPERATION_VIMA_FP_ALU ||
+		this->fetchBuffer.front()->opcode_operation == INSTRUCTION_OPERATION_VIMA_FP_DIV ||
+		this->fetchBuffer.front()->opcode_operation == INSTRUCTION_OPERATION_VIMA_FP_MUL ||
+		this->fetchBuffer.front()->opcode_operation == INSTRUCTION_OPERATION_VIMA_INT_ALU ||
+		this->fetchBuffer.front()->opcode_operation == INSTRUCTION_OPERATION_VIMA_INT_DIV ||
+		this->fetchBuffer.front()->opcode_operation == INSTRUCTION_OPERATION_VIMA_INT_MUL){
+			new_uop.package_clean();
+			new_uop.opcode_to_uop (this->uopCounter++,
+									this->fetchBuffer.front()->opcode_operation,
+									0,
+									1,
+									*this->fetchBuffer.front());
+			
+			new_uop.is_hive = false;
+			new_uop.hive_read1 = -1;
+			new_uop.hive_read2 = -1;
+			new_uop.hive_write = -1;
+
+			new_uop.is_vima = true;
+			new_uop.read_address = fetchBuffer.front()->read_address;
+			new_uop.read2_address = fetchBuffer.front()->read2_address;
+			new_uop.write_address = fetchBuffer.front()->write_address;
+
+			new_uop.updatePackageWait (DECODE_LATENCY);
+			statusInsert = this->decodeBuffer.push_back(new_uop);
+			if (DECODE_DEBUG){
+				ORCS_PRINTF("uop created %s\n", this->decodeBuffer.back()->content_to_string2().c_str())
+			}
+			ERROR_ASSERT_PRINTF(statusInsert != POSITION_FAIL, "Erro, Tentando decodificar mais uops que o maximo permitido")
+			this->fetchBuffer.pop_front();
+			return;
+		}
+
 		// =====================
 		//Decode Read 1
 		// =====================
@@ -658,6 +884,7 @@ void processor_t::decode(){
 								  this->fetchBuffer.front()->read_address,
 								  this->fetchBuffer.front()->read_size,
 								  *this->fetchBuffer.front());
+			
 			//SE OP DIFERE DE LOAD, ZERA REGISTERS
 			if (this->fetchBuffer.front()->opcode_operation != INSTRUCTION_OPERATION_MEM_LOAD)
 			{
@@ -680,12 +907,9 @@ void processor_t::decode(){
 				/// Insert 258 into WRegs
 				new_uop.write_regs[0] = 258;
 			}
-			new_uop.updatePackageReady(DECODE_LATENCY);
+			new_uop.updatePackageWait(DECODE_LATENCY);
 			// printf("\n UOP Created %s \n",new_uop.content_to_string().c_str());
 			statusInsert = this->decodeBuffer.push_back(new_uop);
-			//Try to insert the uop in the uopCache fillbuffer
-			if(orcs_engine.uopCache->instToIgnore == 0)
-				orcs_engine.uopCache->fillBufferInsert(new_uop);
 			if (DECODE_DEBUG){
 				ORCS_PRINTF("uop created %s\n", this->decodeBuffer.back()->content_to_string2().c_str())
 			}
@@ -725,12 +949,9 @@ void processor_t::decode(){
 				/// Insert 258 into WRegs
 				new_uop.write_regs[0] = 258;
 			}
-			new_uop.updatePackageReady(DECODE_LATENCY);
+			new_uop.updatePackageWait(DECODE_LATENCY);
 			// printf("\n UOP Created %s \n",new_uop.content_to_string().c_str());
-			if(orcs_engine.uopCache->instToIgnore == 0)
-				statusInsert = this->decodeBuffer.push_back(new_uop);
-			//Try to insert the uop in the uopCache fillbuffer
-			orcs_engine.uopCache->fillBufferInsert(new_uop);
+			statusInsert = this->decodeBuffer.push_back(new_uop);
 			if (DECODE_DEBUG){
 				ORCS_PRINTF("uop created %s\n", this->decodeBuffer.back()->content_to_string2().c_str())
 			}
@@ -786,11 +1007,8 @@ void processor_t::decode(){
 				ERROR_ASSERT_PRINTF(inserted_258, "Could not insert register_258, all MAX_REGISTERS(%d) used.\n", MAX_REGISTERS)
 				// assert(!inserted_258 && "Max registers used");
 			}
-			new_uop.updatePackageReady(DECODE_LATENCY);
+			new_uop.updatePackageWait(DECODE_LATENCY);
 			statusInsert = this->decodeBuffer.push_back(new_uop);
-			//Try to insert the uop in the uopCache fillbuffer
-			if(orcs_engine.uopCache->instToIgnore == 0)
-				orcs_engine.uopCache->fillBufferInsert(new_uop);
 			if (DECODE_DEBUG){
 				ORCS_PRINTF("uop created %s\n", this->decodeBuffer.back()->content_to_string2().c_str())
 			}
@@ -798,7 +1016,7 @@ void processor_t::decode(){
 		}
 		// =====================
 		//Decode Branch
-		// =====================
+		// =====================https://old.reddit.com/r/rupaulsdragrace/
 		if (this->fetchBuffer.front()->opcode_operation == INSTRUCTION_OPERATION_BRANCH)
 		{
 			new_uop.package_clean();
@@ -839,11 +1057,8 @@ void processor_t::decode(){
 				}
 				ERROR_ASSERT_PRINTF(inserted_258, "Todos Max regs usados. %u \n", MAX_REGISTERS)
 			}
-			new_uop.updatePackageReady(DECODE_LATENCY);
-			if(orcs_engine.uopCache->instToIgnore == 0)
-				statusInsert = this->decodeBuffer.push_back(new_uop);
-			//Try to insert the uop in the uopCache fillbuffer
-			orcs_engine.uopCache->fillBufferInsert(new_uop);
+			new_uop.updatePackageWait(DECODE_LATENCY);
+			statusInsert = this->decodeBuffer.push_back(new_uop);
 			if (DECODE_DEBUG){
 				ORCS_PRINTF("uop created %s\n", this->decodeBuffer.back()->content_to_string2().c_str())
 			}
@@ -862,13 +1077,10 @@ void processor_t::decode(){
 								  this->fetchBuffer.front()->write_size,
 								  *this->fetchBuffer.front());
 			//
-			if (this->fetchBuffer.front()->opcode_operation != INSTRUCTION_OPERATION_MEM_STORE)
-			{
+			if (this->fetchBuffer.front()->opcode_operation != INSTRUCTION_OPERATION_MEM_STORE){
 				bool inserted_258 = false;
-				for (uint32_t i = 0; i < MAX_REGISTERS; i++)
-				{
-					if (new_uop.read_regs[i] == POSITION_FAIL)
-					{
+				for (uint32_t i = 0; i < MAX_REGISTERS; i++){
+					if (new_uop.read_regs[i] == POSITION_FAIL){
 						new_uop.read_regs[i] = 258;
 						inserted_258 = true;
 						break;
@@ -883,19 +1095,17 @@ void processor_t::decode(){
 					new_uop.write_regs[i] = POSITION_FAIL;
 				}
 			}
-			new_uop.updatePackageReady(DECODE_LATENCY);
+			new_uop.updatePackageWait(DECODE_LATENCY);
 			// printf("\n UOP Created %s \n",new_uop.content_to_string().c_str());
 			statusInsert = this->decodeBuffer.push_back(new_uop);
-			//Try to insert the uop in the uopCache fillbuffer
-			if(orcs_engine.uopCache->instToIgnore == 0)
-				orcs_engine.uopCache->fillBufferInsert(new_uop);
 			if (DECODE_DEBUG){
 				ORCS_PRINTF("uop created %s\n", this->decodeBuffer.back()->content_to_string2().c_str())
 			}
 			ERROR_ASSERT_PRINTF(statusInsert != POSITION_FAIL, "Erro, Tentando decodificar mais uops que o maximo permitido")
 		}
+
+		if (PROCESSOR_DEBUG) ORCS_PRINTF ("%lu decode(): uop %lu %s, readyAt %lu, fetchBuffer: %u, decodeBuffer: %u, robUsed: %u.\n", orcs_engine.get_global_cycle(), new_uop.uop_number, get_enum_instruction_operation_char (new_uop.uop_operation), new_uop.readyAt, this->fetchBuffer.get_size(), this->decodeBuffer.get_size(), this->robUsed)
 		this->fetchBuffer.pop_front();
-		if(orcs_engine.uopCache->instToIgnore != 0) orcs_engine.uopCache->instToIgnore--;
 	}
 }
 
@@ -927,7 +1137,7 @@ void processor_t::update_registers(reorder_buffer_line_t *new_rob_line){
 	}
 
 	/// Control the Register Dependency - Register WRITE
-	for (uint32_t k = 0; k < MAX_REGISTERS; k++)
+	for (uint32_t k = 0; k < MAX_REGISTERS; k++)  
 	{
 		this->add_registerWrite();
 		if (new_rob_line->uop.write_regs[k] < 0)
@@ -942,6 +1152,13 @@ void processor_t::update_registers(reorder_buffer_line_t *new_rob_line){
 }
 // ============================================================================
 void processor_t::rename(){
+	/*if (!this->decodeBuffer.is_empty() && orcs_engine.get_global_cycle() < 300000){
+		ORCS_PRINTF ("Cycle %lu\n", orcs_engine.get_global_cycle())
+		for (size_t i = 0; i < this->decodeBuffer.get_size(); i++){
+			ORCS_PRINTF ("%lu %s %s %lu\n", i, get_enum_instruction_operation_char (this->decodeBuffer[i].opcode_operation), get_enum_package_state_char (this->decodeBuffer[i].status), this->decodeBuffer[i].readyAt)
+		}
+	}*/
+
 	if (RENAME_DEBUG){
 		ORCS_PRINTF("Rename Stage\n")
 	}
@@ -953,12 +1170,10 @@ void processor_t::rename(){
 		memory_order_buffer_line_t *mob_line = NULL;
 		// Checando se há uop decodificado, se está pronto, e se o ciclo de pronto
 		// é maior ou igual ao atual
-		if (this->decodeBuffer.is_empty() ||
-			this->decodeBuffer.front()->status != PACKAGE_STATE_READY ||
-			this->decodeBuffer.front()->readyAt > orcs_engine.get_global_cycle())
-		{
+		if (this->decodeBuffer.is_empty() || this->decodeBuffer.front()->status != PACKAGE_STATE_WAIT || this->decodeBuffer.front()->readyAt > orcs_engine.get_global_cycle()) {
 			break;
 		}
+
 		ERROR_ASSERT_PRINTF(this->decodeBuffer.front()->uop_number == this->renameCounter, "Erro, renomeio incorreto\n")
 		//=======================
 		// Memory Operation Read
@@ -985,16 +1200,11 @@ void processor_t::rename(){
 		//=======================
 		// Memory Operation Write
 		//=======================
-		if (this->decodeBuffer.front()->uop_operation == INSTRUCTION_OPERATION_MEM_STORE)
-		{
-			if(	this->memory_order_buffer_write_used>=MOB_WRITE ||
-				this->robUsed>=ROB_SIZE )break;
+		if (this->decodeBuffer.front()->uop_operation == INSTRUCTION_OPERATION_MEM_STORE) {
+			if (this->memory_order_buffer_write_used >= MOB_WRITE || this->robUsed >= ROB_SIZE) break;
 			pos_mob = this->search_position_mob_write();
-			if (pos_mob == POSITION_FAIL)
-			{
-				if (RENAME_DEBUG){
-					ORCS_PRINTF("Stall_MOB_Read_Full\n")
-				}
+			if (pos_mob == POSITION_FAIL) {
+				if (RENAME_DEBUG) ORCS_PRINTF("Stall_MOB_Read_Full\n")
 				this->add_stall_full_MOB_Write();
 				break;
 			}
@@ -1003,6 +1213,50 @@ void processor_t::rename(){
 			}
 			mob_line = &this->memory_order_buffer_write[pos_mob];
 		}
+		//=======================
+		// Memory Operation HIVE
+		//=======================
+		if (this->decodeBuffer.front()->uop_operation == INSTRUCTION_OPERATION_HIVE_LOCK ||
+		this->decodeBuffer.front()->uop_operation == INSTRUCTION_OPERATION_HIVE_UNLOCK ||
+		this->decodeBuffer.front()->uop_operation == INSTRUCTION_OPERATION_HIVE_FP_ALU ||
+		this->decodeBuffer.front()->uop_operation == INSTRUCTION_OPERATION_HIVE_FP_DIV ||
+		this->decodeBuffer.front()->uop_operation == INSTRUCTION_OPERATION_HIVE_FP_MUL ||
+		this->decodeBuffer.front()->uop_operation == INSTRUCTION_OPERATION_HIVE_INT_ALU ||
+		this->decodeBuffer.front()->uop_operation == INSTRUCTION_OPERATION_HIVE_INT_DIV ||
+		this->decodeBuffer.front()->uop_operation == INSTRUCTION_OPERATION_HIVE_INT_MUL ||
+		this->decodeBuffer.front()->uop_operation == INSTRUCTION_OPERATION_HIVE_LOAD ||
+		this->decodeBuffer.front()->uop_operation == INSTRUCTION_OPERATION_HIVE_STORE){
+			if (this->memory_order_buffer_hive_used>=MOB_HIVE || this->robUsed>=ROB_SIZE) break;
+			pos_mob = this->search_position_mob_hive();
+			if (pos_mob == POSITION_FAIL) {
+				this->add_stall_full_MOB_Read();
+				break;
+			}
+			mob_line = &this->memory_order_buffer_hive[pos_mob];
+			//ORCS_PRINTF ("reservando espaço no MOB para instrução %s %lu\n", get_enum_instruction_operation_char(this->decodeBuffer.front()->opcode_operation), this->decodeBuffer.front()->opcode_number)
+		}
+
+		//=======================
+		// Memory Operation HIVE
+		//=======================
+		if (this->decodeBuffer.front()->uop_operation == INSTRUCTION_OPERATION_VIMA_FP_ALU ||
+		this->decodeBuffer.front()->uop_operation == INSTRUCTION_OPERATION_VIMA_FP_DIV ||
+		this->decodeBuffer.front()->uop_operation == INSTRUCTION_OPERATION_VIMA_FP_MUL ||
+		this->decodeBuffer.front()->uop_operation == INSTRUCTION_OPERATION_VIMA_INT_ALU ||
+		this->decodeBuffer.front()->uop_operation == INSTRUCTION_OPERATION_VIMA_INT_DIV ||
+		this->decodeBuffer.front()->uop_operation == INSTRUCTION_OPERATION_VIMA_INT_MUL ||
+		this->decodeBuffer.front()->uop_operation == INSTRUCTION_OPERATION_VIMA_INT_MLA ||
+		this->decodeBuffer.front()->uop_operation == INSTRUCTION_OPERATION_VIMA_FP_MLA){
+			if (this->memory_order_buffer_hive_used>=MOB_VIMA || this->robUsed>=ROB_SIZE) break;
+			pos_mob = this->search_position_mob_vima();
+			if (pos_mob == POSITION_FAIL) {
+				this->add_stall_full_MOB_Read();
+				break;
+			}
+			mob_line = &this->memory_order_buffer_vima[pos_mob];
+			//ORCS_PRINTF ("reservando espaço no MOB para instrução %s %lu\n", get_enum_instruction_operation_char(this->decodeBuffer.front()->opcode_operation), this->decodeBuffer.front()->opcode_number)
+		}
+		
 		//=======================
 		// Verificando se tem espaco no ROB se sim bamos inserir
 		//=======================
@@ -1016,7 +1270,7 @@ void processor_t::rename(){
 			break;
 		}
 		// ===============================================
-		// Insserting on ROB
+		// Inserting on ROB
 		// ===============================================
 		this->reorderBuffer[pos_rob].uop = *this->decodeBuffer.front();
 		//remove uop from decodebuffer
@@ -1028,7 +1282,7 @@ void processor_t::rename(){
 		// Setting controls to ROB.
 		// =======================
 		this->reorderBuffer[pos_rob].stage = PROCESSOR_STAGE_RENAME;
-		this->reorderBuffer[pos_rob].uop.updatePackageReady(RENAME_LATENCY + DISPATCH_LATENCY);
+		this->reorderBuffer[pos_rob].uop.updatePackageWait(RENAME_LATENCY + DISPATCH_LATENCY);
 		this->reorderBuffer[pos_rob].mob_ptr = mob_line;
 		this->reorderBuffer[pos_rob].processor_id = this->processor_id;
 		// =======================
@@ -1047,9 +1301,7 @@ void processor_t::rename(){
 		// =======================
 		if (this->reorderBuffer[pos_rob].uop.uop_operation == INSTRUCTION_OPERATION_MEM_LOAD)
 		{
-			if (RENAME_DEBUG){
-				ORCS_PRINTF("Mem Load\n")
-			}
+			if (RENAME_DEBUG) ORCS_PRINTF("Mem Load\n")
 			this->reorderBuffer[pos_rob].mob_ptr->opcode_address = this->reorderBuffer[pos_rob].uop.opcode_address;
 			this->reorderBuffer[pos_rob].mob_ptr->memory_address = this->reorderBuffer[pos_rob].uop.memory_address;
 			this->reorderBuffer[pos_rob].mob_ptr->memory_size = this->reorderBuffer[pos_rob].uop.memory_size;
@@ -1059,15 +1311,118 @@ void processor_t::rename(){
 			this->reorderBuffer[pos_rob].mob_ptr->uop_number = this->reorderBuffer[pos_rob].uop.uop_number;
 			this->reorderBuffer[pos_rob].mob_ptr->processor_id = this->processor_id;
 		}
-		else if (this->reorderBuffer[pos_rob].uop.uop_operation == INSTRUCTION_OPERATION_MEM_STORE)
-		{
-			if (RENAME_DEBUG){
-				ORCS_PRINTF("Mem Store\n")
-			}
+		else if (this->reorderBuffer[pos_rob].uop.uop_operation == INSTRUCTION_OPERATION_MEM_STORE){
+			if (RENAME_DEBUG) ORCS_PRINTF("Mem Store\n")
 			this->reorderBuffer[pos_rob].mob_ptr->opcode_address = this->reorderBuffer[pos_rob].uop.opcode_address;
 			this->reorderBuffer[pos_rob].mob_ptr->memory_address = this->reorderBuffer[pos_rob].uop.memory_address;
 			this->reorderBuffer[pos_rob].mob_ptr->memory_size = this->reorderBuffer[pos_rob].uop.memory_size;
 			this->reorderBuffer[pos_rob].mob_ptr->memory_operation = MEMORY_OPERATION_WRITE;
+			this->reorderBuffer[pos_rob].mob_ptr->status = PACKAGE_STATE_WAIT;
+			this->reorderBuffer[pos_rob].mob_ptr->readyToGo = orcs_engine.get_global_cycle() + RENAME_LATENCY + DISPATCH_LATENCY;
+			this->reorderBuffer[pos_rob].mob_ptr->uop_number = this->reorderBuffer[pos_rob].uop.uop_number;
+			this->reorderBuffer[pos_rob].mob_ptr->processor_id = this->processor_id;
+		}
+		else if (this->reorderBuffer[pos_rob].uop.uop_operation == INSTRUCTION_OPERATION_HIVE_LOAD ||
+		this->reorderBuffer[pos_rob].uop.uop_operation == INSTRUCTION_OPERATION_HIVE_STORE ||
+		this->reorderBuffer[pos_rob].uop.uop_operation == INSTRUCTION_OPERATION_HIVE_LOCK ||
+		this->reorderBuffer[pos_rob].uop.uop_operation == INSTRUCTION_OPERATION_HIVE_UNLOCK ||
+		this->reorderBuffer[pos_rob].uop.uop_operation == INSTRUCTION_OPERATION_HIVE_INT_ALU ||
+		this->reorderBuffer[pos_rob].uop.uop_operation == INSTRUCTION_OPERATION_HIVE_INT_DIV ||
+		this->reorderBuffer[pos_rob].uop.uop_operation == INSTRUCTION_OPERATION_HIVE_INT_MUL ||
+		this->reorderBuffer[pos_rob].uop.uop_operation == INSTRUCTION_OPERATION_HIVE_FP_ALU ||
+		this->reorderBuffer[pos_rob].uop.uop_operation == INSTRUCTION_OPERATION_HIVE_FP_DIV ||
+		this->reorderBuffer[pos_rob].uop.uop_operation == INSTRUCTION_OPERATION_HIVE_FP_MUL){
+			this->reorderBuffer[pos_rob].mob_ptr->is_hive = true;
+			this->reorderBuffer[pos_rob].mob_ptr->is_hive = false;
+			this->reorderBuffer[pos_rob].mob_ptr->opcode_address = this->reorderBuffer[pos_rob].uop.opcode_address;
+			this->reorderBuffer[pos_rob].mob_ptr->hive_read1 = this->reorderBuffer[pos_rob].uop.hive_read1;
+			this->reorderBuffer[pos_rob].mob_ptr->hive_read2 = this->reorderBuffer[pos_rob].uop.hive_read2;
+			this->reorderBuffer[pos_rob].mob_ptr->hive_write = this->reorderBuffer[pos_rob].uop.hive_write;
+			this->reorderBuffer[pos_rob].mob_ptr->memory_size = this->reorderBuffer[pos_rob].uop.memory_size;
+			switch (this->reorderBuffer[pos_rob].uop.uop_operation){
+				case INSTRUCTION_OPERATION_HIVE_LOCK:
+                	this->reorderBuffer[pos_rob].mob_ptr->memory_operation = MEMORY_OPERATION_HIVE_LOCK;
+					break;
+				case INSTRUCTION_OPERATION_HIVE_UNLOCK:
+                	this->reorderBuffer[pos_rob].mob_ptr->memory_operation = MEMORY_OPERATION_HIVE_UNLOCK;
+					break;
+				case INSTRUCTION_OPERATION_HIVE_LOAD:
+                	this->reorderBuffer[pos_rob].mob_ptr->memory_operation = MEMORY_OPERATION_HIVE_LOAD;
+					this->reorderBuffer[pos_rob].mob_ptr->memory_address = this->reorderBuffer[pos_rob].uop.read_address;
+					break;
+				case INSTRUCTION_OPERATION_HIVE_STORE:
+                	this->reorderBuffer[pos_rob].mob_ptr->memory_operation = MEMORY_OPERATION_HIVE_STORE;
+					this->reorderBuffer[pos_rob].mob_ptr->memory_address = this->reorderBuffer[pos_rob].uop.write_address;
+					break;
+				case INSTRUCTION_OPERATION_HIVE_INT_ALU:
+                	this->reorderBuffer[pos_rob].mob_ptr->memory_operation = MEMORY_OPERATION_HIVE_INT_ALU;
+					break;
+            	case INSTRUCTION_OPERATION_HIVE_INT_MUL:
+                	this->reorderBuffer[pos_rob].mob_ptr->memory_operation = MEMORY_OPERATION_HIVE_INT_MUL;
+					break;
+            	case INSTRUCTION_OPERATION_HIVE_INT_DIV:
+                	this->reorderBuffer[pos_rob].mob_ptr->memory_operation = MEMORY_OPERATION_HIVE_INT_DIV;
+					break;
+            	case INSTRUCTION_OPERATION_HIVE_FP_ALU:
+                	this->reorderBuffer[pos_rob].mob_ptr->memory_operation = MEMORY_OPERATION_HIVE_FP_ALU;
+					break;
+            	case INSTRUCTION_OPERATION_HIVE_FP_MUL:
+                	this->reorderBuffer[pos_rob].mob_ptr->memory_operation = MEMORY_OPERATION_HIVE_FP_MUL;
+					break;
+            	case INSTRUCTION_OPERATION_HIVE_FP_DIV:
+                	this->reorderBuffer[pos_rob].mob_ptr->memory_operation = MEMORY_OPERATION_HIVE_FP_DIV;
+					break;
+				default:
+					break;
+			}
+			this->reorderBuffer[pos_rob].mob_ptr->status = PACKAGE_STATE_WAIT;
+			this->reorderBuffer[pos_rob].mob_ptr->readyToGo = orcs_engine.get_global_cycle() + RENAME_LATENCY + DISPATCH_LATENCY;
+			this->reorderBuffer[pos_rob].mob_ptr->uop_number = this->reorderBuffer[pos_rob].uop.uop_number;
+			this->reorderBuffer[pos_rob].mob_ptr->processor_id = this->processor_id;
+		}
+		else if (this->reorderBuffer[pos_rob].uop.uop_operation == INSTRUCTION_OPERATION_VIMA_INT_ALU ||
+		this->reorderBuffer[pos_rob].uop.uop_operation == INSTRUCTION_OPERATION_VIMA_INT_DIV ||
+		this->reorderBuffer[pos_rob].uop.uop_operation == INSTRUCTION_OPERATION_VIMA_INT_MUL ||
+		this->reorderBuffer[pos_rob].uop.uop_operation == INSTRUCTION_OPERATION_VIMA_FP_ALU ||
+		this->reorderBuffer[pos_rob].uop.uop_operation == INSTRUCTION_OPERATION_VIMA_FP_DIV ||
+		this->reorderBuffer[pos_rob].uop.uop_operation == INSTRUCTION_OPERATION_VIMA_FP_MUL ||
+		this->reorderBuffer[pos_rob].uop.uop_operation == INSTRUCTION_OPERATION_VIMA_INT_MLA ||
+		this->reorderBuffer[pos_rob].uop.uop_operation == INSTRUCTION_OPERATION_VIMA_FP_MLA){
+			this->reorderBuffer[pos_rob].mob_ptr->is_hive = false;
+			this->reorderBuffer[pos_rob].mob_ptr->is_vima = true;
+			this->reorderBuffer[pos_rob].mob_ptr->vima_read1 = this->reorderBuffer[pos_rob].uop.read_address;
+			this->reorderBuffer[pos_rob].mob_ptr->vima_read2 = this->reorderBuffer[pos_rob].uop.read2_address;
+			this->reorderBuffer[pos_rob].mob_ptr->vima_write = this->reorderBuffer[pos_rob].uop.write_address;
+			this->reorderBuffer[pos_rob].mob_ptr->opcode_address = this->reorderBuffer[pos_rob].uop.opcode_address;
+			this->reorderBuffer[pos_rob].mob_ptr->memory_size = this->reorderBuffer[pos_rob].uop.memory_size;
+			switch (this->reorderBuffer[pos_rob].uop.uop_operation){
+				case INSTRUCTION_OPERATION_VIMA_INT_ALU:
+                	this->reorderBuffer[pos_rob].mob_ptr->memory_operation = MEMORY_OPERATION_VIMA_INT_ALU;
+					break;
+            	case INSTRUCTION_OPERATION_VIMA_INT_MUL:
+                	this->reorderBuffer[pos_rob].mob_ptr->memory_operation = MEMORY_OPERATION_VIMA_INT_MUL;
+					break;
+            	case INSTRUCTION_OPERATION_VIMA_INT_DIV:
+                	this->reorderBuffer[pos_rob].mob_ptr->memory_operation = MEMORY_OPERATION_VIMA_INT_DIV;
+					break;
+            	case INSTRUCTION_OPERATION_VIMA_FP_ALU:
+                	this->reorderBuffer[pos_rob].mob_ptr->memory_operation = MEMORY_OPERATION_VIMA_FP_ALU;
+					break;
+            	case INSTRUCTION_OPERATION_VIMA_FP_MUL:
+                	this->reorderBuffer[pos_rob].mob_ptr->memory_operation = MEMORY_OPERATION_VIMA_FP_MUL;
+					break;
+            	case INSTRUCTION_OPERATION_VIMA_FP_DIV:
+                	this->reorderBuffer[pos_rob].mob_ptr->memory_operation = MEMORY_OPERATION_VIMA_FP_DIV;
+					break;
+				case INSTRUCTION_OPERATION_VIMA_INT_MLA:
+                	this->reorderBuffer[pos_rob].mob_ptr->memory_operation = MEMORY_OPERATION_VIMA_INT_MLA;
+					break;
+				case INSTRUCTION_OPERATION_VIMA_FP_MLA:
+                	this->reorderBuffer[pos_rob].mob_ptr->memory_operation = MEMORY_OPERATION_VIMA_FP_MLA;
+					break;
+				default:
+					break;
+			}
 			this->reorderBuffer[pos_rob].mob_ptr->status = PACKAGE_STATE_WAIT;
 			this->reorderBuffer[pos_rob].mob_ptr->readyToGo = orcs_engine.get_global_cycle() + RENAME_LATENCY + DISPATCH_LATENCY;
 			this->reorderBuffer[pos_rob].mob_ptr->uop_number = this->reorderBuffer[pos_rob].uop.uop_number;
@@ -1081,7 +1436,31 @@ void processor_t::rename(){
 			if (DISAMBIGUATION_ENABLED){
 				this->disambiguator->make_memory_dependences(this->reorderBuffer[pos_rob].mob_ptr);
 			}
+		} else if (this->reorderBuffer[pos_rob].uop.uop_operation == INSTRUCTION_OPERATION_HIVE_LOAD ||
+			this->reorderBuffer[pos_rob].uop.uop_operation == INSTRUCTION_OPERATION_HIVE_STORE ||
+			this->reorderBuffer[pos_rob].uop.uop_operation == INSTRUCTION_OPERATION_HIVE_LOCK ||
+			this->reorderBuffer[pos_rob].uop.uop_operation == INSTRUCTION_OPERATION_HIVE_UNLOCK ||
+			this->reorderBuffer[pos_rob].uop.uop_operation == INSTRUCTION_OPERATION_HIVE_INT_ALU ||
+			this->reorderBuffer[pos_rob].uop.uop_operation == INSTRUCTION_OPERATION_HIVE_INT_DIV ||
+			this->reorderBuffer[pos_rob].uop.uop_operation == INSTRUCTION_OPERATION_HIVE_INT_MUL ||
+			this->reorderBuffer[pos_rob].uop.uop_operation == INSTRUCTION_OPERATION_HIVE_FP_ALU ||
+			this->reorderBuffer[pos_rob].uop.uop_operation == INSTRUCTION_OPERATION_HIVE_FP_DIV ||
+			this->reorderBuffer[pos_rob].uop.uop_operation == INSTRUCTION_OPERATION_HIVE_FP_MUL)
+		{
+			mob_line->rob_ptr = &this->reorderBuffer[pos_rob];
+		} else if (this->reorderBuffer[pos_rob].uop.uop_operation == INSTRUCTION_OPERATION_VIMA_INT_ALU ||
+			this->reorderBuffer[pos_rob].uop.uop_operation == INSTRUCTION_OPERATION_VIMA_INT_DIV ||
+			this->reorderBuffer[pos_rob].uop.uop_operation == INSTRUCTION_OPERATION_VIMA_INT_MUL ||
+			this->reorderBuffer[pos_rob].uop.uop_operation == INSTRUCTION_OPERATION_VIMA_FP_ALU ||
+			this->reorderBuffer[pos_rob].uop.uop_operation == INSTRUCTION_OPERATION_VIMA_FP_DIV ||
+			this->reorderBuffer[pos_rob].uop.uop_operation == INSTRUCTION_OPERATION_VIMA_FP_MUL ||
+			this->reorderBuffer[pos_rob].uop.uop_operation == INSTRUCTION_OPERATION_VIMA_INT_MLA ||
+			this->reorderBuffer[pos_rob].uop.uop_operation == INSTRUCTION_OPERATION_VIMA_FP_MLA)
+		{
+			mob_line->rob_ptr = &this->reorderBuffer[pos_rob];
 		}
+
+		if (PROCESSOR_DEBUG) ORCS_PRINTF ("%lu rename(): uop %lu %s, readyAt %lu, fetchBuffer: %u, decodeBuffer: %u, robUsed: %u.\n", orcs_engine.get_global_cycle(), this->reorderBuffer[pos_rob].uop.uop_number, get_enum_instruction_operation_char (this->reorderBuffer[pos_rob].uop.uop_operation), this->reorderBuffer[pos_rob].uop.readyAt, this->fetchBuffer.get_size(), this->decodeBuffer.get_size(), this->robUsed)
 	} //end for
 }
 // ============================================================================
@@ -1106,6 +1485,8 @@ void processor_t::dispatch(){
 
 		uint32_t fu_mem_load = 0;
 		uint32_t fu_mem_store = 0;
+		uint32_t fu_mem_hive = 0;
+		uint32_t fu_mem_vima = 0;
 
 		for (uint32_t i = 0; i < this->unified_reservation_station.size() && i < UNIFIED_RS; i++)
 		{
@@ -1120,15 +1501,16 @@ void processor_t::dispatch(){
 					ORCS_PRINTF("=================\n")
 				}
 			}
-
+		
 			if (total_dispatched >= DISPATCH_WIDTH){
 				break;
 			}
 
 			if ((rob_line->uop.readyAt <= orcs_engine.get_global_cycle()) &&
 				(rob_line->wait_reg_deps_number == 0)){
-				ERROR_ASSERT_PRINTF(rob_line->uop.status == PACKAGE_STATE_READY, "Error, uop not ready being dispatched\n %s\n", rob_line->content_to_string().c_str())
+				ERROR_ASSERT_PRINTF(rob_line->uop.status == PACKAGE_STATE_WAIT, "Error, uop not ready being dispatched\n %s\n", rob_line->content_to_string().c_str())
 				ERROR_ASSERT_PRINTF(rob_line->stage == PROCESSOR_STAGE_RENAME, "Error, uop not in Rename to rename stage\n %s\n",rob_line->content_to_string().c_str())
+
 				//if dispatched
 				bool dispatched = false;
 				switch (rob_line->uop.uop_operation)
@@ -1151,7 +1533,7 @@ void processor_t::dispatch(){
 								fu_int_alu++;
 								dispatched = true;
 								rob_line->stage = PROCESSOR_STAGE_EXECUTION;
-								rob_line->uop.updatePackageReady(LATENCY_INTEGER_ALU);
+								rob_line->uop.updatePackageWait(LATENCY_INTEGER_ALU);
 								break;
 							}
 						}
@@ -1170,7 +1552,7 @@ void processor_t::dispatch(){
 								fu_int_mul++;
 								dispatched = true;
 								rob_line->stage = PROCESSOR_STAGE_EXECUTION;
-								rob_line->uop.updatePackageReady(LATENCY_INTEGER_MUL);
+								rob_line->uop.updatePackageWait(LATENCY_INTEGER_MUL);
 								break;
 							}
 						}
@@ -1189,7 +1571,7 @@ void processor_t::dispatch(){
 								fu_int_div++;
 								dispatched = true;
 								rob_line->stage = PROCESSOR_STAGE_EXECUTION;
-								rob_line->uop.updatePackageReady(LATENCY_INTEGER_DIV);
+								rob_line->uop.updatePackageWait(LATENCY_INTEGER_DIV);
 								break;
 							}
 						}
@@ -1208,7 +1590,7 @@ void processor_t::dispatch(){
 								fu_fp_alu++;
 								dispatched = true;
 								rob_line->stage = PROCESSOR_STAGE_EXECUTION;
-								rob_line->uop.updatePackageReady(LATENCY_FP_ALU);
+								rob_line->uop.updatePackageWait(LATENCY_FP_ALU);
 								break;
 							}
 						}
@@ -1227,7 +1609,7 @@ void processor_t::dispatch(){
 								fu_fp_mul++;
 								dispatched = true;
 								rob_line->stage = PROCESSOR_STAGE_EXECUTION;
-								rob_line->uop.updatePackageReady(LATENCY_FP_MUL);
+								rob_line->uop.updatePackageWait(LATENCY_FP_MUL);
 								break;
 							}
 						}
@@ -1247,14 +1629,66 @@ void processor_t::dispatch(){
 								fu_fp_div++;
 								dispatched = true;
 								rob_line->stage = PROCESSOR_STAGE_EXECUTION;
-								rob_line->uop.updatePackageReady(LATENCY_FP_DIV);
+								rob_line->uop.updatePackageWait(LATENCY_FP_DIV);
 								break;
 							}
 						}
 					}
 					break;
 				// ====================================================
-				// Operation LOAD
+				// Operation HIVE
+				case INSTRUCTION_OPERATION_HIVE_LOCK:
+                case INSTRUCTION_OPERATION_HIVE_UNLOCK:
+                case INSTRUCTION_OPERATION_HIVE_LOAD:
+                case INSTRUCTION_OPERATION_HIVE_STORE:
+                case INSTRUCTION_OPERATION_HIVE_INT_ALU:
+                case INSTRUCTION_OPERATION_HIVE_INT_MUL:
+                case INSTRUCTION_OPERATION_HIVE_INT_DIV:
+                case INSTRUCTION_OPERATION_HIVE_FP_ALU :
+                case INSTRUCTION_OPERATION_HIVE_FP_MUL :
+                case INSTRUCTION_OPERATION_HIVE_FP_DIV :
+					if (fu_mem_hive < HIVE_UNIT)
+					{
+						for (uint8_t k = 0; k < HIVE_UNIT; k++)
+						{
+							if (this->fu_mem_hive[k] <= orcs_engine.get_global_cycle())
+							{
+								this->fu_mem_hive[k] = orcs_engine.get_global_cycle() + WAIT_NEXT_MEM_HIVE;
+								fu_mem_hive++;
+								dispatched = true;
+								rob_line->stage = PROCESSOR_STAGE_EXECUTION;
+								rob_line->uop.updatePackageWait(LATENCY_MEM_HIVE);
+								if (DEBUG) ORCS_PRINTF ("Processor dispatch(): HIVE instruction %lu dispatched!\n", rob_line->uop.uop_number)
+								break;
+							}
+						}
+					}
+					break;
+				case INSTRUCTION_OPERATION_VIMA_INT_ALU:
+                case INSTRUCTION_OPERATION_VIMA_INT_MUL:
+                case INSTRUCTION_OPERATION_VIMA_INT_DIV:
+                case INSTRUCTION_OPERATION_VIMA_FP_ALU :
+                case INSTRUCTION_OPERATION_VIMA_FP_MUL :
+                case INSTRUCTION_OPERATION_VIMA_FP_DIV :
+				case INSTRUCTION_OPERATION_VIMA_INT_MLA:
+				case INSTRUCTION_OPERATION_VIMA_FP_MLA:
+					if (fu_mem_vima < VIMA_UNIT)
+					{
+						for (uint8_t k = 0; k < VIMA_UNIT; k++)
+						{
+							if (this->fu_mem_vima[k] <= orcs_engine.get_global_cycle())
+							{
+								this->fu_mem_vima[k] = orcs_engine.get_global_cycle() + WAIT_NEXT_MEM_VIMA;
+								fu_mem_vima++;
+								dispatched = true;
+								rob_line->stage = PROCESSOR_STAGE_EXECUTION;
+								rob_line->uop.updatePackageWait(LATENCY_MEM_VIMA);
+								if (VIMA_DEBUG) ORCS_PRINTF ("Processor dispatch(): VIMA instruction %lu dispatched!\n", rob_line->uop.uop_number)
+								break;
+							}
+						}
+					}
+					break;
 				case INSTRUCTION_OPERATION_MEM_LOAD:
 					if (fu_mem_load < LOAD_UNIT)
 					{
@@ -1266,7 +1700,7 @@ void processor_t::dispatch(){
 								fu_mem_load++;
 								dispatched = true;
 								rob_line->stage = PROCESSOR_STAGE_EXECUTION;
-								rob_line->uop.updatePackageReady(LATENCY_MEM_LOAD);
+								rob_line->uop.updatePackageWait(LATENCY_MEM_LOAD);
 								break;
 							}
 						}
@@ -1286,18 +1720,18 @@ void processor_t::dispatch(){
 								fu_mem_store++;
 								dispatched = true;
 								rob_line->stage = PROCESSOR_STAGE_EXECUTION;
-								rob_line->uop.updatePackageReady(LATENCY_MEM_STORE);
+								rob_line->uop.updatePackageWait(LATENCY_MEM_STORE);
 								break;
 							}
 						}
 					}
 					break;
-
 				// ====================================================
 				case INSTRUCTION_OPERATION_BARRIER:
 				case INSTRUCTION_OPERATION_HMC_ROA:
 				case INSTRUCTION_OPERATION_HMC_ROWA:
-					ERROR_PRINTF("Invalid instruction BARRIER||HMC_ROA||HMC_ROWA being dispatched.\n");
+				case INSTRUCTION_OPERATION_LAST:
+					ERROR_PRINTF("Invalid instruction LAST||BARRIER||HMC_ROA||HMC_ROWA being dispatched.\n");
 					break;
 				} //end switch
 				//remover os postos em execucao aqui
@@ -1317,31 +1751,52 @@ void processor_t::dispatch(){
 					this->unified_reservation_station.erase(this->unified_reservation_station.begin() + i);
 					i--;
 				} //end if dispatched
+
+				if (PROCESSOR_DEBUG) ORCS_PRINTF ("%lu dispatch(): uop %lu %s, readyAt %lu, fetchBuffer: %u, decodeBuffer: %u, robUsed: %u.\n", orcs_engine.get_global_cycle(), rob_line->uop.uop_number, get_enum_instruction_operation_char (rob_line->uop.uop_operation), rob_line->uop.readyAt, this->fetchBuffer.get_size(), this->decodeBuffer.get_size(), this->robUsed)
 			}	 //end if robline is ready
 		}		  //end for
 		// sleep(1);
 } //end method
 
-void processor_t::clean_mob_write(){
-	uint32_t pos = this->memory_order_buffer_write_start;
-	if (this->memory_order_buffer_write[pos].status == PACKAGE_STATE_READY &&
-		this->memory_order_buffer_write[pos].readyAt <= orcs_engine.get_global_cycle() &&
-		this->memory_order_buffer_write[pos].processed == false){
-		if (EXECUTE_DEBUG){
-			if(orcs_engine.get_global_cycle()>WAIT_CYCLE){
-				ORCS_PRINTF("\nSolving %s\n\n", this->memory_order_buffer_write[pos].rob_ptr->content_to_string().c_str())
-			}
+//clean_mob_write() copy!
+void processor_t::clean_mob_hive(){
+	uint32_t pos = this->memory_order_buffer_hive_start;
+	for (uint8_t i = 0; i < this->memory_order_buffer_hive_used; i++){
+		if (this->memory_order_buffer_hive[pos].status == PACKAGE_STATE_READY &&
+			this->memory_order_buffer_hive[pos].readyAt <= orcs_engine.get_global_cycle() &&
+			this->memory_order_buffer_hive[pos].processed == false){
+			this->memory_order_buffer_hive[pos].rob_ptr->stage = PROCESSOR_STAGE_COMMIT;
+			this->memory_order_buffer_hive[pos].rob_ptr->uop.updatePackageReady(COMMIT_LATENCY);
+			this->memory_order_buffer_hive[pos].processed=true;
+			this->memory_hive_executed--;
+			/*if (DISAMBIGUATION_ENABLED){
+				this->disambiguator->solve_memory_dependences(&this->memory_order_buffer_hive[pos]);
+			}*/
+			if (DEBUG) ORCS_PRINTF ("Processor clean_mob_hive(): HIVE instruction %lu %s, %u!\n", this->memory_order_buffer_hive[pos].uop_number, get_enum_processor_stage_char (this->memory_order_buffer_hive[pos].rob_ptr->stage), this->memory_order_buffer_hive[pos].readyAt)
 		}
-		uint64_t latency = this->memory_order_buffer_write[pos].readyAt - this->memory_order_buffer_write[pos].cycle_send_request;
-		this->memory_order_buffer_write[pos].rob_ptr->stage = PROCESSOR_STAGE_COMMIT;
-		this->memory_order_buffer_write[pos].rob_ptr->uop.updatePackageReady(latency + COMMIT_LATENCY);
-		this->memory_order_buffer_write[pos].processed=true;
-		this->memory_write_executed--;
-		this->solve_registers_dependency(this->memory_order_buffer_write[pos].rob_ptr);
-		if (DISAMBIGUATION_ENABLED){
-			this->disambiguator->solve_memory_dependences(&this->memory_order_buffer_write[pos]);
+		pos++;
+		if(pos >= MOB_HIVE) pos = 0;
+	}
+}
+
+void processor_t::clean_mob_vima(){
+	uint32_t pos = this->memory_order_buffer_vima_start;
+	for (uint8_t i = 0; i < this->memory_order_buffer_vima_used; i++){
+		if (this->memory_order_buffer_vima[pos].status == PACKAGE_STATE_READY &&
+			this->memory_order_buffer_vima[pos].readyAt <= orcs_engine.get_global_cycle() &&
+			this->memory_order_buffer_vima[pos].processed == false){
+			this->memory_order_buffer_vima[pos].rob_ptr->stage = PROCESSOR_STAGE_COMMIT;
+			this->memory_order_buffer_vima[pos].rob_ptr->uop.updatePackageReady(COMMIT_LATENCY);
+			this->memory_order_buffer_vima[pos].processed=true;
+			this->memory_vima_executed--;
+			this->solve_registers_dependency(this->memory_order_buffer_vima[pos].rob_ptr);
+			/*if (DISAMBIGUATION_ENABLED){
+				this->disambiguator->solve_memory_dependences(&this->memory_order_buffer_vima[pos]);
+			}*/
+			if (DEBUG) ORCS_PRINTF ("Processor clean_mob_vima(): HIVE instruction %lu %s, %u!\n", this->memory_order_buffer_vima[pos].uop_number, get_enum_processor_stage_char (this->memory_order_buffer_vima[pos].rob_ptr->stage), this->memory_order_buffer_vima[pos].readyAt)
 		}
-		this->remove_front_mob_write();
+		pos++;
+		if(pos >= MOB_VIMA) pos = 0;
 	}
 }
 
@@ -1370,12 +1825,6 @@ void processor_t::clean_mob_read(){
 			if (DISAMBIGUATION_ENABLED){
 				this->disambiguator->solve_memory_dependences(&this->memory_order_buffer_read[pos]);
 			}
-			if (PARALLEL_LIM_ACTIVE){
-				if(!this->memory_order_buffer_read[pos].forwarded_data){
-						ERROR_ASSERT_PRINTF(this->counter_mshr_read > 0,"ERRO, Contador negativo READ\n")
-						this->counter_mshr_read--;
-				}
-			}
 			if(this->memory_order_buffer_read[pos].waiting_DRAM){
 				ERROR_ASSERT_PRINTF(this->request_DRAM > 0,"ERRO, Contador negativo Waiting DRAM\n")
 				if (EXECUTE_DEBUG){
@@ -1399,7 +1848,8 @@ void processor_t::execute()
 			ORCS_PRINTF("========== Execute Stage ==========\n")
 		}
 	}
-	this->clean_mob_write();
+	this->clean_mob_vima();
+	this->clean_mob_hive();
 	this->clean_mob_read();
 	uint32_t uop_total_executed = 0;
 	for (uint32_t i = 0; i < this->unified_functional_units.size(); i++){
@@ -1411,9 +1861,10 @@ void processor_t::execute()
 		if (rob_line == NULL){
 			break;
 		}
+
 		if (rob_line->uop.readyAt <= orcs_engine.get_global_cycle()){
 			ERROR_ASSERT_PRINTF(rob_line->stage == PROCESSOR_STAGE_EXECUTION, "ROB not on execution state")
-			ERROR_ASSERT_PRINTF(rob_line->uop.status == PACKAGE_STATE_READY, "FU with Package not in ready state")
+			ERROR_ASSERT_PRINTF(rob_line->uop.status == PACKAGE_STATE_WAIT, "FU with Package not in ready state")
 			switch (rob_line->uop.uop_operation){
 				// =============================================================
 				// BRANCHES
@@ -1438,13 +1889,58 @@ void processor_t::execute()
 					i--;
 				}
 				break;
-				// MEMORY LOAD/STORE ==========================================
+				// HIVE ==========================================
+				case INSTRUCTION_OPERATION_HIVE_LOCK:
+                case INSTRUCTION_OPERATION_HIVE_UNLOCK:
+                case INSTRUCTION_OPERATION_HIVE_LOAD:
+                case INSTRUCTION_OPERATION_HIVE_STORE:
+                case INSTRUCTION_OPERATION_HIVE_INT_ALU:
+                case INSTRUCTION_OPERATION_HIVE_INT_MUL:
+                case INSTRUCTION_OPERATION_HIVE_INT_DIV:
+                case INSTRUCTION_OPERATION_HIVE_FP_ALU :
+                case INSTRUCTION_OPERATION_HIVE_FP_MUL :
+                case INSTRUCTION_OPERATION_HIVE_FP_DIV :
+				{
+					ERROR_ASSERT_PRINTF(rob_line->mob_ptr != NULL, "Read with a NULL pointer to MOB\n%s\n",rob_line->content_to_string().c_str())
+					this->memory_hive_executed++;
+					rob_line->mob_ptr->uop_executed = true;
+					rob_line->uop.updatePackageWait(EXECUTE_LATENCY);
+					uop_total_executed++;
+					/// Remove from the Functional Units
+					this->unified_functional_units.erase(this->unified_functional_units.begin() + i);
+					i--;
+					
+					if (DEBUG) ORCS_PRINTF ("Processor execute(): HIVE instruction %lu executed!\n", rob_line->uop.uop_number)
+				}
+				break;
+				// VIMA ==========================================
+				case INSTRUCTION_OPERATION_VIMA_INT_ALU:
+                case INSTRUCTION_OPERATION_VIMA_INT_MUL:
+                case INSTRUCTION_OPERATION_VIMA_INT_DIV:
+                case INSTRUCTION_OPERATION_VIMA_FP_ALU :
+                case INSTRUCTION_OPERATION_VIMA_FP_MUL :
+                case INSTRUCTION_OPERATION_VIMA_FP_DIV :
+				case INSTRUCTION_OPERATION_VIMA_INT_MLA:
+				case INSTRUCTION_OPERATION_VIMA_FP_MLA:
+				{
+					ERROR_ASSERT_PRINTF(rob_line->mob_ptr != NULL, "Read with a NULL pointer to MOB\n%s\n",rob_line->content_to_string().c_str())
+					this->memory_vima_executed++;
+					rob_line->mob_ptr->uop_executed = true;
+					rob_line->uop.updatePackageWait(EXECUTE_LATENCY);
+					uop_total_executed++;
+					/// Remove from the Functional Units
+					this->unified_functional_units.erase(this->unified_functional_units.begin() + i);
+					i--;
+					
+					if (VIMA_DEBUG) ORCS_PRINTF ("Processor execute(): VIMA instruction %lu executed!\n", rob_line->uop.uop_number)
+				}
+				break;
 				case INSTRUCTION_OPERATION_MEM_LOAD:
 				{
 					ERROR_ASSERT_PRINTF(rob_line->mob_ptr != NULL, "Read with a NULL pointer to MOB\n%s\n",rob_line->content_to_string().c_str())
 					this->memory_read_executed++;
 					rob_line->mob_ptr->uop_executed = true;
-					rob_line->uop.updatePackageReady(EXECUTE_LATENCY);
+					rob_line->uop.updatePackageWait(EXECUTE_LATENCY);
 					uop_total_executed++;
 					/// Remove from the Functional Units
 					this->unified_functional_units.erase(this->unified_functional_units.begin() + i);
@@ -1456,7 +1952,7 @@ void processor_t::execute()
 					ERROR_ASSERT_PRINTF(rob_line->mob_ptr != NULL, "Write with a NULL pointer to MOB\n%s\n",rob_line->content_to_string().c_str())
 					this->memory_write_executed++;
 					rob_line->mob_ptr->uop_executed = true;
-					rob_line->uop.updatePackageReady(EXECUTE_LATENCY);
+					rob_line->uop.updatePackageWait(EXECUTE_LATENCY);
 					uop_total_executed++;
 					/// Remove from the Functional Units
 					this->unified_functional_units.erase(this->unified_functional_units.begin() + i);
@@ -1466,7 +1962,8 @@ void processor_t::execute()
 				case INSTRUCTION_OPERATION_BARRIER:
 				case INSTRUCTION_OPERATION_HMC_ROA:
 				case INSTRUCTION_OPERATION_HMC_ROWA:
-					ERROR_PRINTF("Invalid BARRIER | HMC ROA |HMC ROWA.\n");
+				case INSTRUCTION_OPERATION_LAST:
+					ERROR_PRINTF("Invalid BARRIER | HMC ROA | HMC ROWA | ÇAST.\n");
 					break;
 			} //end switch
 			if (EXECUTE_DEBUG){
@@ -1474,6 +1971,8 @@ void processor_t::execute()
 					ORCS_PRINTF("Executed %s\n", rob_line->content_to_string().c_str())
 				}
 			}
+
+			if (PROCESSOR_DEBUG) ORCS_PRINTF ("%lu execute(): uop %lu %s, readyAt %lu, fetchBuffer: %u, decodeBuffer: %u, robUsed: %u.\n", orcs_engine.get_global_cycle(), rob_line->uop.uop_number, get_enum_instruction_operation_char (rob_line->uop.uop_operation), rob_line->uop.readyAt, this->fetchBuffer.get_size(), this->decodeBuffer.get_size(), this->robUsed)
 		} //end if ready package
 	}	 //end for
 	if (EXECUTE_DEBUG){
@@ -1481,33 +1980,41 @@ void processor_t::execute()
 			ORCS_PRINTF("Memory Operations Read Executed %u\n",this->memory_read_executed)
 			ORCS_PRINTF("Memory Operations Write Executed %u\n",this->memory_write_executed)
 			ORCS_PRINTF("Requests to DRAM on the Fly %d \n",this->request_DRAM)
-			ORCS_PRINTF("Parallel Request Data %d \n",this->counter_mshr_read)
-			ORCS_PRINTF("Parallel Write Data %d \n",this->counter_mshr_write)
 		}
 	}
-		// =========================================================================
-		// Verificar se foi executado alguma operação de leitura,
-		//  e executar a mais antiga no MOB
-		// =========================================================================
+	// =========================================================================
+	// Verificar se foi executado alguma operação de leitura,
+	//  e executar a mais antiga no MOB
+	// =========================================================================
+	for (size_t i = 0; i < PARALLEL_LOADS; i++){
 		if(this->memory_read_executed!=0){
 			this->mob_read();
 		}
+	}
 
-		// ==================================
-		// Executar o MOB Write, com a escrita mais antiga.
-		// depois liberar e tratar as escrita prontas;
-		// ==================================
+	if(this->memory_hive_executed!=0){
+		this->mob_hive();
+	}
 
+	if(this->memory_vima_executed!=0){
+		this->mob_vima();
+	}
+
+	// ==================================
+	// Executar o MOB Write, com a escrita mais antiga.
+	// depois liberar e tratar as escrita prontas;
+	// ==================================
+	for (size_t i = 0; i < PARALLEL_STORES; i++){
 		if(this->memory_write_executed!=0){
 			this->mob_write();
 		}
+	}
 		// =====================================
 	if (EXECUTE_DEBUG){
 		if (orcs_engine.get_global_cycle() > WAIT_CYCLE){
 			ORCS_PRINTF("=========================================================================\n")
 		}
 	}
-
 } //end method
 // ============================================================================
 memory_order_buffer_line_t* processor_t::get_next_op_load(){
@@ -1532,7 +2039,6 @@ uint32_t processor_t::mob_read(){
 		if (orcs_engine.get_global_cycle() > WAIT_CYCLE){
 			ORCS_PRINTF("==========================================================\n")
 			ORCS_PRINTF("=========== MOB Read ===========\n")
-			ORCS_PRINTF("Parallel Requests %d > MAX\n",this->counter_mshr_read)
 			ORCS_PRINTF("MOB Read Start %u\n",this->memory_order_buffer_read_start)
 			ORCS_PRINTF("MOB Read End %u\n",this->memory_order_buffer_read_end)
 			ORCS_PRINTF("MOB Read Used %u\n",this->memory_order_buffer_read_used)
@@ -1549,7 +2055,6 @@ uint32_t processor_t::mob_read(){
 		}
 	}
 	if(this->oldest_read_to_send == NULL){
-
 			this->oldest_read_to_send = this->get_next_op_load();
 			if (MOB_DEBUG){
 				if(oldest_read_to_send==NULL){
@@ -1559,13 +2064,7 @@ uint32_t processor_t::mob_read(){
 				}
 			}
 	}
-	if (this->oldest_read_to_send != NULL && !this->oldest_read_to_send->sent){
-		if (PARALLEL_LIM_ACTIVE){
-			if(this->counter_mshr_read >= MAX_PARALLEL_REQUESTS_CORE){
-				this->add_times_reach_parallel_requests_read();
-				return FAIL;
-			}
-		}
+	if (this->oldest_read_to_send != NULL && !this->oldest_read_to_send->sent && orcs_engine.cacheManager->available (oldest_read_to_send->memory_operation)){
 		if (MOB_DEBUG){
 			if (orcs_engine.get_global_cycle() > WAIT_CYCLE){
 				ORCS_PRINTF("=================================\n")
@@ -1574,18 +2073,42 @@ uint32_t processor_t::mob_read(){
 				ORCS_PRINTF("=================================\n")
 			}
 		}
-
+		
 		if (!oldest_read_to_send->sent){
-			orcs_engine.cacheManager->searchData(this->oldest_read_to_send);
-			this->oldest_read_to_send->cycle_send_request = orcs_engine.get_global_cycle(); //Cycle which sent request to memory system
-			this->oldest_read_to_send->sent=true;
-			this->oldest_read_to_send->rob_ptr->sent=true;								///Setting flag which marks sent request. set to remove entry on mob at commit
-			if (PARALLEL_LIM_ACTIVE){
-				this->counter_mshr_read++; //numero de req paralelas, add+1
+			memory_package_t* request = new memory_package_t;
+			
+			request->clients.push_back (oldest_read_to_send);
+			request->opcode_address = oldest_read_to_send->opcode_address;
+			request->memory_address = oldest_read_to_send->memory_address;
+			request->memory_size = oldest_read_to_send->memory_size;
+			request->memory_operation = oldest_read_to_send->memory_operation;
+			request->status = PACKAGE_STATE_UNTREATED;
+			request->is_hive = false;
+			request->is_vima = false;
+			request->hive_read1 = oldest_read_to_send->hive_read1;
+			request->hive_read2 = oldest_read_to_send->hive_read2;
+			request->hive_write = oldest_read_to_send->hive_write;
+			request->readyAt = orcs_engine.get_global_cycle();
+			request->born_cycle = orcs_engine.get_global_cycle();
+			request->sent_to_ram = false;
+			request->sent_to_cache = false;
+			request->type = DATA;
+			request->uop_number = oldest_read_to_send->uop_number;
+			request->processor_id = this->processor_id;
+			request->op_count[request->memory_operation]++;
+
+			if (orcs_engine.cacheManager->searchData(request)){
+				this->oldest_read_to_send->cycle_send_request = orcs_engine.get_global_cycle(); //Cycle which sent request to memory system
+				this->oldest_read_to_send->sent=true;
+				this->oldest_read_to_send->rob_ptr->sent=true;								///Setting flag which marks sent request. set to remove entry on mob at commit
+				if (DEBUG) ORCS_PRINTF ("Processor mob_read(): sending memory request %lu, %s.\n", request->uop_number, get_enum_memory_operation_char (request->memory_operation))
+			} else {
+				this->add_times_reach_parallel_requests_read();
+				delete request;
 			}
 		}
 		this->oldest_read_to_send = NULL;
-	} //end if mob_line null
+	} //end if request null
 	if (MOB_DEBUG){
 			if (orcs_engine.get_global_cycle() > WAIT_CYCLE){
 			ORCS_PRINTF("==========================================================\n")
@@ -1593,17 +2116,160 @@ uint32_t processor_t::mob_read(){
 	}
 	return OK;
 } //end method
+
+void processor_t::print_mob_hive(){
+	ORCS_PRINTF ("Cycle: %lu\n", orcs_engine.get_global_cycle())
+	for(uint32_t j = 0; j < this->memory_order_buffer_hive_used; j++){
+		ORCS_PRINTF ("Processor print_mob_hive(): %s %s %lu %u %lu.\n", get_enum_package_state_char (this->memory_order_buffer_hive[(this->memory_order_buffer_hive_start+j) % MOB_HIVE].status), get_enum_memory_operation_char (this->memory_order_buffer_hive[(this->memory_order_buffer_hive_start+j) % MOB_HIVE].memory_operation), this->memory_order_buffer_hive[(this->memory_order_buffer_hive_start+j) % MOB_HIVE].uop_number, this->memory_order_buffer_hive[(this->memory_order_buffer_hive_start+j) % MOB_HIVE].wait_mem_deps_number, this->memory_order_buffer_hive[(this->memory_order_buffer_hive_start+j) % MOB_HIVE].readyToGo)
+	}
+}
+
+void processor_t::print_mob_vima(){
+	ORCS_PRINTF ("Cycle: %lu\n", orcs_engine.get_global_cycle())
+	for(uint32_t j = 0; j < this->memory_order_buffer_vima_used; j++){
+		ORCS_PRINTF ("Processor print_mob_vima(): %s %s %lu %u %lu.\n", get_enum_package_state_char (this->memory_order_buffer_vima[(this->memory_order_buffer_hive_start+j) % MOB_HIVE].status), get_enum_memory_operation_char (this->memory_order_buffer_hive[(this->memory_order_buffer_hive_start+j) % MOB_HIVE].memory_operation), this->memory_order_buffer_hive[(this->memory_order_buffer_hive_start+j) % MOB_HIVE].uop_number, this->memory_order_buffer_hive[(this->memory_order_buffer_hive_start+j) % MOB_HIVE].wait_mem_deps_number, this->memory_order_buffer_hive[(this->memory_order_buffer_vima_start+j) % MOB_VIMA].readyToGo)
+	}
+}
+
+memory_order_buffer_line_t* processor_t::get_next_op_hive(){
+	uint32_t pos = this->memory_order_buffer_hive_start;
+	for(uint32_t i = 0 ; i < this->memory_order_buffer_hive_used; i++){
+		if(this->memory_order_buffer_hive[pos].uop_executed &&
+			this->memory_order_buffer_hive[pos].status == PACKAGE_STATE_WAIT &&
+			this->memory_order_buffer_hive[pos].sent==false &&
+        	this->memory_order_buffer_hive[pos].wait_mem_deps_number == 0 &&
+			this->memory_order_buffer_hive[pos].readyToGo <= orcs_engine.get_global_cycle()){
+				if (DEBUG) {
+					//ORCS_PRINTF ("Processor get_next_op_hive(): fetching next HIVE instruction from MOB.\n")
+					for(uint32_t j = 0; j < this->memory_order_buffer_hive_used; j++){
+						//ORCS_PRINTF ("Processor get_next_op_hive(): %s %s %lu %u %lu.\n", get_enum_package_state_char (this->memory_order_buffer_hive[(this->memory_order_buffer_hive_start+j) % MOB_HIVE].status), get_enum_memory_operation_char (this->memory_order_buffer_hive[(this->memory_order_buffer_hive_start+j) % MOB_HIVE].memory_operation), this->memory_order_buffer_hive[(this->memory_order_buffer_hive_start+j) % MOB_HIVE].uop_number, this->memory_order_buffer_hive[(this->memory_order_buffer_hive_start+j) % MOB_HIVE].wait_mem_deps_number, this->memory_order_buffer_hive[(this->memory_order_buffer_hive_start+j) % MOB_HIVE].readyToGo)
+					}
+				}
+				return &this->memory_order_buffer_hive[pos];
+		} 
+		pos++;
+		if( pos >= MOB_HIVE) pos=0;
+	}
+	return NULL;
+}
+
+memory_order_buffer_line_t* processor_t::get_next_op_vima(){
+	uint32_t pos = this->memory_order_buffer_vima_start;
+	for(uint32_t i = 0 ; i < this->memory_order_buffer_vima_used; i++){
+		if(this->memory_order_buffer_vima[pos].uop_executed &&
+			this->memory_order_buffer_vima[pos].status == PACKAGE_STATE_WAIT &&
+			this->memory_order_buffer_vima[pos].sent==false &&
+        	this->memory_order_buffer_vima[pos].wait_mem_deps_number == 0 &&
+			this->memory_order_buffer_vima[pos].readyToGo <= orcs_engine.get_global_cycle()){
+				//if (DEBUG) {
+					//ORCS_PRINTF ("Processor get_next_op_vima(): fetching next HIVE instruction from MOB.\n")
+					//for(uint32_t j = 0; j < this->memory_order_buffer_vima_used; j++){
+						//ORCS_PRINTF ("Processor get_next_op_vima(): %s %s %lu %u %lu.\n", get_enum_package_state_char (this->memory_order_buffer_vima[(this->memory_order_buffer_vima_start+j) % MOB_HIVE].status), get_enum_memory_operation_char (this->memory_order_buffer_vima[(this->memory_order_buffer_vima_start+j) % MOB_HIVE].memory_operation), this->memory_order_buffer_vima[(this->memory_order_buffer_vima_start+j) % MOB_HIVE].uop_number, this->memory_order_buffer_vima[(this->memory_order_buffer_vima_start+j) % MOB_HIVE].wait_mem_deps_number, this->memory_order_buffer_vima[(this->memory_order_buffer_vima_start+j) % MOB_HIVE].readyToGo)
+					//}
+				//}
+				return &this->memory_order_buffer_vima[pos];
+		} 
+		pos++;
+		if( pos >= MOB_VIMA) pos=0;
+	}
+	return NULL;
+}
+
+// ============================================================================
+uint32_t processor_t::mob_hive(){
+	if(this->oldest_hive_to_send==NULL)
+		this->oldest_hive_to_send = this->get_next_op_hive();
+	
+	if (this->oldest_hive_to_send != NULL && orcs_engine.cacheManager->available (oldest_hive_to_send->memory_operation)){
+		if (!this->oldest_hive_to_send->sent){
+			memory_package_t* request = new memory_package_t;
+			
+			request->clients.push_back (oldest_hive_to_send);
+			request->opcode_address = oldest_hive_to_send->opcode_address;
+			request->memory_address = oldest_hive_to_send->memory_address;
+			request->memory_size = oldest_hive_to_send->memory_size;
+			request->memory_operation = oldest_hive_to_send->memory_operation;
+			request->status = PACKAGE_STATE_UNTREATED;
+			request->is_hive = true;
+			request->is_vima = false;
+			request->hive_read1 = oldest_hive_to_send->hive_read1;
+			request->hive_read2 = oldest_hive_to_send->hive_read2;
+			request->hive_write = oldest_hive_to_send->hive_write;
+			request->readyAt = orcs_engine.get_global_cycle();
+			request->born_cycle = orcs_engine.get_global_cycle();
+			request->type = DATA;
+			request->sent_to_ram = false;
+			request->sent_to_cache = false;
+			request->uop_number = oldest_hive_to_send->uop_number;
+			request->processor_id = this->processor_id;
+			request->op_count[request->memory_operation]++;
+
+			if (orcs_engine.cacheManager->searchData(request)){
+				this->oldest_hive_to_send->cycle_send_request = orcs_engine.get_global_cycle(); //Cycle which sent request to memory system
+				this->oldest_hive_to_send->sent=true;
+				this->oldest_hive_to_send->rob_ptr->sent=true;								///Setting flag which marks sent request. set to remove entry on mob at commit
+				if (DEBUG) ORCS_PRINTF ("Processor mob_hive(): sending memory request %lu, %s to cache manager.\n", request->uop_number, get_enum_memory_operation_char (request->memory_operation))
+			} else delete request;
+		}
+		this->oldest_hive_to_send = NULL;
+		// =============================================================
+	}
+	return OK;
+}
+
+// ============================================================================
+uint32_t processor_t::mob_vima(){
+	if(this->oldest_vima_to_send==NULL){
+		this->oldest_vima_to_send = this->get_next_op_vima();
+	}
+	if (this->oldest_vima_to_send != NULL && orcs_engine.cacheManager->available (oldest_vima_to_send->memory_operation)){
+		if (!this->oldest_vima_to_send->sent){
+			memory_package_t* request = new memory_package_t;
+			
+			request->clients.push_back (oldest_vima_to_send);
+			request->opcode_address = oldest_vima_to_send->opcode_address;
+			request->memory_address = oldest_vima_to_send->memory_address;
+			request->memory_size = oldest_vima_to_send->memory_size;
+			request->memory_operation = oldest_vima_to_send->memory_operation;
+			request->status = PACKAGE_STATE_UNTREATED;
+			request->is_hive = false;
+			request->is_vima = true;
+			request->vima_read1 = oldest_vima_to_send->vima_read1;
+			request->vima_read2 = oldest_vima_to_send->vima_read2;
+			request->vima_write = oldest_vima_to_send->vima_write;
+			request->readyAt = orcs_engine.get_global_cycle();
+			request->born_cycle = orcs_engine.get_global_cycle();
+			request->type = DATA;
+			request->sent_to_ram = false;
+			request->sent_to_cache = false;
+			request->uop_number = oldest_vima_to_send->uop_number;
+			request->processor_id = this->processor_id;
+			request->op_count[request->memory_operation]++;
+
+			if (orcs_engine.cacheManager->searchData(request)){
+				this->oldest_vima_to_send->cycle_send_request = orcs_engine.get_global_cycle(); //Cycle which sent request to memory system
+				this->oldest_vima_to_send->sent=true;
+				this->oldest_vima_to_send->rob_ptr->sent=true;								///Setting flag which marks sent request. set to remove entry on mob at commit
+				if (VIMA_DEBUG) ORCS_PRINTF ("Processor mob_vima(): sending memory request %lu, %s to cache manager.\n", request->uop_number, get_enum_memory_operation_char (request->memory_operation))
+			} else delete request;
+		}
+		this->oldest_vima_to_send = NULL;
+		// =============================================================
+	}
+	return OK;
+}
+
 // ============================================================================
 memory_order_buffer_line_t* processor_t::get_next_op_store(){
-		uint32_t i = this->memory_order_buffer_write_start;
-		if(this->memory_order_buffer_write[i].uop_executed &&
-			this->memory_order_buffer_write[i].status == PACKAGE_STATE_WAIT &&
-			this->memory_order_buffer_write[i].sent ==false  &&
-        	this->memory_order_buffer_write[i].wait_mem_deps_number <= 0 &&
-			this->memory_order_buffer_write[i].readyToGo <= orcs_engine.get_global_cycle())
-		{
-			return &this->memory_order_buffer_write[i];
-		}
+	uint32_t i = this->memory_order_buffer_write_start;
+	if(this->memory_order_buffer_write[i].uop_executed &&
+		this->memory_order_buffer_write[i].status == PACKAGE_STATE_WAIT &&
+		this->memory_order_buffer_write[i].sent ==false  &&
+       	this->memory_order_buffer_write[i].wait_mem_deps_number <= 0 &&
+		this->memory_order_buffer_write[i].readyToGo <= orcs_engine.get_global_cycle())
+	{
+		return &this->memory_order_buffer_write[i];
+	} 
 	return NULL;
 }
 // ============================================================================
@@ -1629,7 +2295,6 @@ uint32_t processor_t::mob_write(){
 	}
 	if(this->oldest_write_to_send==NULL){
 		this->oldest_write_to_send = this->get_next_op_store();
-	//////////////////////////////////////
 		if (MOB_DEBUG){
 			if(this->oldest_write_to_send==NULL){
 				if(orcs_engine.get_global_cycle() > WAIT_CYCLE){
@@ -1637,18 +2302,8 @@ uint32_t processor_t::mob_write(){
 				}
 			}
 		}
-	/////////////////////////////////////////////
 	}
-	if (this->oldest_write_to_send != NULL)
-	{
-			if (PARALLEL_LIM_ACTIVE){
-				if (this->counter_mshr_write >= MAX_PARALLEL_REQUESTS_CORE)
-				{
-					this->add_times_reach_parallel_requests_write();
-					return FAIL;
-				}
-			}
-		//uint32_t ttc = 0;
+	if (this->oldest_write_to_send != NULL && orcs_engine.cacheManager->available (oldest_write_to_send->memory_operation)){
 		if (MOB_DEBUG){
 			if (orcs_engine.get_global_cycle() > WAIT_CYCLE){
 				ORCS_PRINTF("=================================\n")
@@ -1660,23 +2315,52 @@ uint32_t processor_t::mob_write(){
 
 		//sendind to write data
 		if (!this->oldest_write_to_send->sent){
-			orcs_engine.cacheManager->searchData(oldest_write_to_send);
-			this->oldest_write_to_send->cycle_send_request = orcs_engine.get_global_cycle(); //Cycle which sent request to memory system
-			this->oldest_write_to_send->sent=true;
-			this->oldest_write_to_send->rob_ptr->sent=true;								///Setting flag which marks sent request. set to remove entry on mob at commit
-			if (PARALLEL_LIM_ACTIVE){
-				this->counter_mshr_write++; //numero de req paralelas, add+1
+			memory_package_t* request = new memory_package_t;
+			
+			//request->clients.push_back (oldest_write_to_send);
+			request->opcode_address = oldest_write_to_send->opcode_address;
+			request->memory_address = oldest_write_to_send->memory_address;
+			request->memory_size = oldest_write_to_send->memory_size;
+			request->memory_operation = oldest_write_to_send->memory_operation;
+			request->status = PACKAGE_STATE_UNTREATED;
+			request->is_hive = false;
+			request->is_vima = false;
+			request->hive_read1 = oldest_write_to_send->hive_read1;
+			request->hive_read2 = oldest_write_to_send->hive_read2;
+			request->hive_write = oldest_write_to_send->hive_write;
+			request->readyAt = orcs_engine.get_global_cycle();
+			request->born_cycle = orcs_engine.get_global_cycle();
+			request->type = DATA;
+			request->sent_to_ram = false;
+			request->sent_to_cache = false;
+			request->uop_number = oldest_write_to_send->uop_number;
+			request->processor_id = this->processor_id;
+			request->op_count[request->memory_operation]++;
+
+			if (orcs_engine.cacheManager->searchData(request)){
+				this->oldest_write_to_send->cycle_send_request = orcs_engine.get_global_cycle(); //Cycle which sent request to memory system
+				this->oldest_write_to_send->sent=true;
+				this->oldest_write_to_send->rob_ptr->sent=true;	///Setting flag which marks sent request. set to remove entry on mob at commit
+				this->oldest_write_to_send->rob_ptr->stage = PROCESSOR_STAGE_COMMIT;
+				this->oldest_write_to_send->rob_ptr->uop.updatePackageReady(COMMIT_LATENCY);
+				this->oldest_write_to_send->processed=true;
+
+				//ORCS_PRINTF ("%lu uop: %lu | %s | %u | %u.\n", orcs_engine.get_global_cycle(), this->oldest_write_to_send->rob_ptr->uop.uop_number, get_enum_processor_stage_char (this->oldest_write_to_send->rob_ptr->stage), this->counter_mshr_write, this->MAX_PARALLEL_REQUESTS_CORE)
+
+				this->memory_write_executed--;
+				this->solve_registers_dependency(this->oldest_write_to_send->rob_ptr);
+				if (DISAMBIGUATION_ENABLED){
+					this->disambiguator->solve_memory_dependences(this->oldest_write_to_send);
+				}
+				this->remove_front_mob_write();
+			} else {
+				this->add_times_reach_parallel_requests_write();
+				delete request;
 			}
 		}
 		this->oldest_write_to_send = NULL;
 		// =============================================================
-	} //end if mob_line null
-		if (MOB_DEBUG){
-			if (orcs_engine.get_global_cycle() > WAIT_CYCLE){
-				ORCS_PRINTF("Parallel Requests %d > MAX\n",this->counter_mshr_write)
-				ORCS_PRINTF("==========================================================\n")
-			}
-		}
+	} //end if request null
 	return OK;
 }
 // ============================================================================
@@ -1732,6 +2416,30 @@ void processor_t::commit(){
 					this->add_stat_inst_div_fp_completed();
 					break;
 
+				case INSTRUCTION_OPERATION_HIVE_LOCK:
+                case INSTRUCTION_OPERATION_HIVE_UNLOCK:
+                case INSTRUCTION_OPERATION_HIVE_LOAD:
+                case INSTRUCTION_OPERATION_HIVE_STORE:
+                case INSTRUCTION_OPERATION_HIVE_INT_ALU:
+                case INSTRUCTION_OPERATION_HIVE_INT_MUL:
+                case INSTRUCTION_OPERATION_HIVE_INT_DIV:
+                case INSTRUCTION_OPERATION_HIVE_FP_ALU :
+                case INSTRUCTION_OPERATION_HIVE_FP_MUL :
+                case INSTRUCTION_OPERATION_HIVE_FP_DIV :
+					this->add_stat_inst_hive_completed();
+					if (DEBUG) ORCS_PRINTF ("Processor commit(): instruction HIVE %lu, %s committed, readyAt %lu.\n", this->reorderBuffer[pos_buffer].uop.uop_number, get_enum_instruction_operation_char (this->reorderBuffer[pos_buffer].uop.uop_operation), this->reorderBuffer[pos_buffer].uop.readyAt)
+					break;
+				case INSTRUCTION_OPERATION_VIMA_INT_ALU:
+                case INSTRUCTION_OPERATION_VIMA_INT_MUL:
+                case INSTRUCTION_OPERATION_VIMA_INT_DIV:
+                case INSTRUCTION_OPERATION_VIMA_FP_ALU :
+                case INSTRUCTION_OPERATION_VIMA_FP_MUL :
+                case INSTRUCTION_OPERATION_VIMA_FP_DIV :
+				case INSTRUCTION_OPERATION_VIMA_INT_MLA:
+				case INSTRUCTION_OPERATION_VIMA_FP_MLA:
+					this->add_stat_inst_vima_completed();
+					if (DEBUG || VIMA_DEBUG) ORCS_PRINTF ("Processor commit(): instruction VIMA %lu, %s committed, readyAt %lu.\n", this->reorderBuffer[pos_buffer].uop.uop_number, get_enum_instruction_operation_char (this->reorderBuffer[pos_buffer].uop.uop_operation), this->reorderBuffer[pos_buffer].uop.readyAt)
+					break;
 				// MEMORY OPERATIONS - READ
 				case INSTRUCTION_OPERATION_MEM_LOAD:{
 					if(this->reorderBuffer[pos_buffer].mob_ptr->waiting_DRAM){
@@ -1739,6 +2447,7 @@ void processor_t::commit(){
 						this->add_core_ram_requests();
 					}
 					this->mem_req_wait_cycles+=(this->reorderBuffer[pos_buffer].mob_ptr->readyAt - this->reorderBuffer[pos_buffer].mob_ptr->readyToGo);
+					if (PROCESSOR_DEBUG) ORCS_PRINTF ("%lu commit(): uop %lu %s, readyAt %lu, fetchBuffer: %u, decodeBuffer: %u, robUsed: %u.\n", orcs_engine.get_global_cycle(), this->reorderBuffer[pos_buffer].uop.uop_number, get_enum_instruction_operation_char (this->reorderBuffer[pos_buffer].uop.uop_operation), this->reorderBuffer[pos_buffer].uop.readyAt, this->fetchBuffer.get_size(), this->decodeBuffer.get_size(), this->robUsed)
 					this->add_stat_inst_load_completed();
 					break;
 				}
@@ -1765,11 +2474,14 @@ void processor_t::commit(){
 				case INSTRUCTION_OPERATION_BARRIER:
 				case INSTRUCTION_OPERATION_HMC_ROWA:
 				case INSTRUCTION_OPERATION_HMC_ROA:
-					ERROR_PRINTF("Invalid instruction BARRIER| HMC ROA | HMC ROWA.\n");
+				case INSTRUCTION_OPERATION_LAST:
+					ERROR_PRINTF("Invalid instruction BARRIER | HMC ROA | HMC ROWA | LAST.\n");
 					break;
 			}
 
 			ERROR_ASSERT_PRINTF(uint32_t(pos_buffer) == this->robStart, "Commiting different from the position start\n");
+			if (PROCESSOR_DEBUG) ORCS_PRINTF ("%lu commit(): uop %lu %s, readyAt %lu, fetchBuffer: %u, decodeBuffer: %u, robUsed: %u.\n", orcs_engine.get_global_cycle(), this->reorderBuffer[pos_buffer].uop.uop_number, get_enum_instruction_operation_char (this->reorderBuffer[pos_buffer].uop.uop_operation), this->reorderBuffer[pos_buffer].uop.readyAt, this->fetchBuffer.get_size(), this->decodeBuffer.get_size(), this->robUsed)
+
 			if (COMMIT_DEBUG){
 				if (orcs_engine.get_global_cycle() > WAIT_CYCLE)
 				{
@@ -1780,17 +2492,23 @@ void processor_t::commit(){
 			if(this->reorderBuffer[this->robStart].sent==true){
 				if(this->reorderBuffer[this->robStart].uop.uop_operation==INSTRUCTION_OPERATION_MEM_LOAD){
 					this->remove_front_mob_read();
-				}
-				else if(this->reorderBuffer[this->robStart].uop.uop_operation==INSTRUCTION_OPERATION_MEM_STORE){
-					ERROR_ASSERT_PRINTF(this->counter_mshr_write > 0,"Erro, reduzindo requests paralelos abaixo de 0\n")
-					this->counter_mshr_write--;
-				}
+				} else if (this->reorderBuffer[this->robStart].uop.is_hive){
+					this->remove_front_mob_hive();
+				} else if (this->reorderBuffer[this->robStart].uop.is_vima){
+					this->remove_front_mob_vima();
+				} 
 			}
 			this->removeFrontROB();
 		}
 		/// Could not commit the older, then stop looking for ready uops
 		else
 		{
+			if (DEBUG){
+				ORCS_PRINTF ("=================================================\n")
+				for (uint32_t i = 0; i < this->robUsed; i++){
+					ORCS_PRINTF ("%u COMMIT: %s %s %s %lu %lu\n", i, get_enum_processor_stage_char (this->reorderBuffer[(i+robStart) % ROB_SIZE].stage), get_enum_instruction_operation_char (this->reorderBuffer[(i+robStart) % ROB_SIZE].uop.uop_operation), get_enum_package_state_char (this->reorderBuffer[(i+robStart) % ROB_SIZE].uop.status), this->reorderBuffer[(i+robStart) % ROB_SIZE].uop.uop_number, this->reorderBuffer[(i+robStart) % ROB_SIZE].uop.readyAt);
+				}
+			}
 			break;
 		}
 	}
@@ -1803,7 +2521,6 @@ void processor_t::commit(){
 } //end method
 // ============================================================================
 void processor_t::solve_registers_dependency(reorder_buffer_line_t *rob_line){
-
 		/// Remove pointers from Register Alias Table (RAT)
 		for (uint32_t j = 0; j < MAX_REGISTERS; j++)
 		{
@@ -1876,6 +2593,10 @@ void processor_t::statistics(){
 		fprintf(output, "MPKI: %lf\n", (float)orcs_engine.cacheManager->data_cache[2][cache_indexes[2]].get_cache_miss()/((float)this->fetchCounter/1000));
 		fprintf(output, "Average_wait_cycles_wait_mem_req: %lf\n", (float)this->mem_req_wait_cycles/this->get_stat_inst_load_completed());
 		fprintf(output, "Core_Request_RAM_AVG_Cycle: %lf\n", (float)this->core_ram_request_wait_cycles/this->get_core_ram_requests());
+		fprintf(output, "Total Load Requests: %lu\n", this->get_stat_inst_load_completed());
+		fprintf(output, "Total Store Requests: %lu\n", this->get_stat_inst_store_completed());
+		fprintf(output, "Total HIVE Instructions: %lu\n", this->get_stat_inst_hive_completed());
+		fprintf(output, "Total VIMA Instructions: %lu\n", this->get_stat_inst_vima_completed());
 		utils_t::largestSeparator(output);
 		delete[] cache_indexes;
 	}
@@ -1941,6 +2662,8 @@ void processor_t::clock(){
 			ORCS_PRINTF("Cycle %lu\n",orcs_engine.get_global_cycle())
 		}
 	}
+	orcs_engine.vima_controller->clock();
+	orcs_engine.hive_controller->clock();
 	orcs_engine.cacheManager->clock();
 	/////////////////////////////////////////////////
 	//// Verifica se existe coisas no ROB
